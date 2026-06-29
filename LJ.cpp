@@ -164,9 +164,6 @@ enum class HapticMode {
 // calculator
 Calculator *calculatorPtr;
 
-// radius of the camera
-double rho = .35;
-
 // a world that contains all objects of the virtual environment
 cWorld *world;
 
@@ -184,9 +181,6 @@ cGenericHapticDevicePtr hapticDevice;
 
 HapticMode hapticMode;
 
-// highest stiffness the current haptic device can render
-double hapticDeviceMaxStiffness;
-
 // sphere objects
 vector<Atom *> spheres;
 
@@ -203,9 +197,6 @@ cLabel *LJ_num;
 
 // label showing the # anchored
 cLabel *num_anchored;
-
-// a label to display the total energy of the system
-cLabel *total_energy;
 
 // a label to show whether or not the atoms are frozen
 cLabel *isFrozen;
@@ -247,12 +238,6 @@ int width = 0;
 // current height of window
 int height = 0;
 
-// swap interval for the display context (vertical synchronization)
-int swapInterval = 1;
-
-// root resource path
-string resourceRoot;
-
 // a scope to monitor the potential energy
 cScope *scope;
 
@@ -271,24 +256,12 @@ cVector3d selectedPoint;
 
 
 std::atomic<bool> freezeAtoms(false); // determine if atoms should be frozen
-double centerCoords[3] = {50.0, 50.0, 50.0}; // save coordinates of central atom
 LocalPotential energySurface = LENNARD_JONES; // default potential is Lennard Jones
 bool global_min_known = true; // check if able to read in the global min
 cPanel *helpPanel; // panel that displays hotkeys
 cLabel *helpHeader; // help panel header
-vector<cLabel *> hotkeyKeys; // vector holding hotkey key labels
 
-// vector holding function key labels (must be separate for formatting)
-vector<cLabel *> hotkeyFunctions;
 
-// keep track of how long screenshot label has been displayed
-std::atomic<int> screenshotCounter(-2);
-
-// keep track of how long write to con label has been displayed
-std::atomic<int> writeConCounter(-2);
-
-std::atomic<double> displayedPotentialEnergy(0.0);
-std::atomic<int> displayedAnchoredCount(0);
 std::recursive_mutex sceneMutex;
 std::atomic<bool> hapticsThreadStarted(false);
 int currentIndex = 0;
@@ -373,8 +346,11 @@ static string getExecutableDir() {
   return executablePath.substr(0, separator);
 }
 
+// RETURNS THE PATHS TO RESOURCES FILES
 static vector<string> getResourceSearchRoots() {
   vector<string> roots;
+  // root resource path
+  string resourceRoot;
   if (!resourceRoot.empty()) {
     roots.push_back(resourceRoot);
   }
@@ -406,6 +382,7 @@ static bool isFiniteVector(const cVector3d &value) {
   return std::isfinite(value.x()) && std::isfinite(value.y()) && std::isfinite(value.z());
 }
 
+// THIS CALCULATES THE MAGNTIUDES OF THE VECTORS  
 static cVector3d clampVectorMagnitude(const cVector3d &value, const double maxMagnitude) {
   if (!isFiniteVector(value)) {
     return cVector3d(0.0, 0.0, 0.0);
@@ -541,7 +518,8 @@ void initializeGLFW() {
     glfwTerminate();
     throw std::runtime_error("Failed to create window!");
   }
-
+  // swap interval for the display context (vertical synchronization)
+  int swapInterval = 1;
   glfwGetWindowSize(window, &width, &height); // get width and height of window
   glfwSetWindowPos(window, windowX, windowY); // set position of window
   glfwSetKeyCallback(window, keyCallback); // set key callback
@@ -584,6 +562,7 @@ void initializeCamera() {
   camera->setSphericalReferences(origin, zenith, azimuth);
 
   // sets the camera's position to have a radius of .1, located at 0 radians (vertically and horizontally)
+  double rho = .35; // radius of the camera
   camera->setSphericalRad(rho, 0, 0);
 
   // set the near and far clipping planes of the camera anything in front or behind these clipping
@@ -629,6 +608,7 @@ void initializeLight() {
 void initializeHapticDevice() {
   handler = new cHapticDeviceHandler(); // create a haptic device handler
   // get access to the first available haptic device
+  double hapticDeviceMaxStiffness;   // highest stiffness the current haptic device can render
   if (handler->getNumDevices() > 0) {
     handler->getDevice(hapticDevice, 0);
   }
@@ -681,6 +661,7 @@ void placeAtoms(std::array<double, 9> aseCell, std::array<int, 3> asePbc, int ar
     aseCell = structure.cell;
     asePbc = structure.pbc;
     const int nAtoms = static_cast<int>(positions.size());
+    double centerCoords[3] = {50.0, 50.0, 50.0}; // save coordinates of central atom
 
     for (int i = 0; i < nAtoms; i++) {
       Atom *newAtom = initializeAtom(texture, startingAtomicNrs[i]); // Create atom pointer
@@ -782,6 +763,8 @@ void initializeLabels() {
   addLabel(labelRates); // create a label to display the haptic and graphic rate of the simulation
   addLabel(LJ_num); // potential energy label
   addLabel(num_anchored); // number anchored label
+  // a label to display the total energy of the system
+  cLabel *total_energy;
   addLabel(total_energy); // total energy label
   addLabel(isFrozen); // frozen state label
   addLabel(camera_pos); // camera position label
@@ -990,13 +973,17 @@ void updateLabels() {
   string trueFalse = freezeAtoms.load() ? "true" : "false";
   isFrozen->setText("Freeze simulation: " + trueFalse);
   isFrozen->setLocalPos((width - isFrozen->getWidth()) - 5, 15);
-
+  // keep track of how long screenshot label has been displayed
+  std::atomic<int> screenshotCounter(-2);
   screenshotLabel->setLocalPos(5, height - 20);
   updateCounters(screenshotLabel, screenshotCounter);
 
   writeConLabel->setLocalPos(5, height - 40);
+  // keep track of how long write to con label has been displayed
+  std::atomic<int> writeConCounter(-2);
   updateCounters(writeConLabel, writeConCounter);
-
+  vector<cLabel *> hotkeyKeys; // vector holding hotkey key labels
+  vector<cLabel *> hotkeyFunctions; // vector holding function key labels (must be separate for formatting)
   for (int i = 0; i < hotkeyKeys.size(); i++) {
     cLabel *tempKeyLabel = hotkeyKeys[i];
     cLabel *tempFuncLabel = hotkeyFunctions[i];
@@ -1007,7 +994,8 @@ void updateLabels() {
 
 void updateGraphics(void) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-
+  std::atomic<double> displayedPotentialEnergy(0.0);
+  std::atomic<int> displayedAnchoredCount(0);
   // UPDATE WIDGETS
   updateLabels();
   helpPanel->setLocalPos(width - 550, height - 530);
