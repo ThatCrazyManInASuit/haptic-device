@@ -1430,116 +1430,211 @@ void updateHaptics(void) {
 }
 
 //------------------------------------------------------------------------------
-// PLACEHOLDER SLIDER UI
+// SLIDER UI
 //------------------------------------------------------------------------------
-cLabel *sliderLabel;
-cPanel *sliderTrack;
-cPanel *sliderHandle;
-const double SLIDER_TIMESTEP_MIN = 0.0001;
-const double SLIDER_TIMESTEP_MAX = 0.0020;
-double sliderValue = (0.0010 - SLIDER_TIMESTEP_MIN) /
-                     (SLIDER_TIMESTEP_MAX - SLIDER_TIMESTEP_MIN);
-bool sliderDragging = false;
+struct SliderConfig {
+  string name;
+  double minValue;
+  double maxValue;
+  double defaultValue;
+  string units;
+  double displayScale;
+  int displayDigits;
+};
 
-void getSliderLayout(int &trackX, int &trackY, int &labelY) {
-  const int sliderWidth = 220;
-  trackX = (int)(0.5 * (width - sliderWidth));
-  trackY = height - 46;
-  labelY = height - 24;
+struct SliderUI {
+  string id;
+  string name;
+  string units;
+  double minValue;
+  double maxValue;
+  double value;
+  double displayScale;
+  int displayDigits;
+  bool dragging;
+  cLabel *label;
+  cPanel *track;
+  cPanel *handle;
+
+  double normalizedValue() const {
+    if (maxValue <= minValue) {
+      return 0.0;
+    }
+    return (value - minValue) / (maxValue - minValue);
+  }
+
+  void setNormalizedValue(double normalizedValue) {
+    double clampedValue = normalizedValue;
+    if (clampedValue < 0.0) {
+      clampedValue = 0.0;
+    }
+    if (clampedValue > 1.0) {
+      clampedValue = 1.0;
+    }
+    value = minValue + clampedValue * (maxValue - minValue);
+  }
+
+  string displayText() const {
+    return name + ": " + cStr(value * displayScale, displayDigits) + " " + units;
+  }
+};
+
+const int SLIDER_WIDTH = 220;
+const int SLIDER_ROW_SPACING = 44;
+const int SLIDER_TOP_MARGIN = 24;
+const int SLIDER_TRACK_OFFSET = 22;
+
+vector<SliderUI> sliders;
+unordered_map<string, int> sliderIndexById;
+
+// SLIDER UI STEP 1: Add each slider's configuration here.
+// sliderConfigs[id] = {name, min, max, default, units, display scale, display digits}
+unordered_map<string, SliderConfig> sliderConfigs = {
+  {"time_step", {"Time Step", 0.0001, 0.0020, 0.0010, "ms", 1000.0, 2}}
+};
+
+void generateSliderUI() {
+  for (const auto &entry : sliderConfigs) {
+    const string &id = entry.first;
+    const SliderConfig &config = entry.second;
+
+    SliderUI slider;
+    slider.id = id;
+    slider.name = config.name;
+    slider.units = config.units;
+    slider.minValue = config.minValue;
+    slider.maxValue = config.maxValue;
+    slider.value = config.defaultValue;
+    slider.displayScale = config.displayScale;
+    slider.displayDigits = config.displayDigits;
+    slider.dragging = false;
+
+    addLabel(slider.label);
+    slider.label->setText(slider.displayText());
+
+    slider.track = new cPanel();
+    slider.track->setSize(SLIDER_WIDTH, 6);
+    slider.track->setCornerRadius(3, 3, 3, 3);
+    slider.track->setColor(cColorf(0.20f, 0.20f, 0.20f));
+    slider.track->setTransparencyLevel(0.45f);
+    camera->m_frontLayer->addChild(slider.track);
+
+    slider.handle = new cPanel();
+    slider.handle->setSize(14, 24);
+    slider.handle->setCornerRadius(4, 4, 4, 4);
+    slider.handle->setColor(cColorf(0.05f, 0.35f, 0.90f));
+    slider.handle->setTransparencyLevel(0.85f);
+    camera->m_frontLayer->addChild(slider.handle);
+
+    sliderIndexById[id] = sliders.size();
+    sliders.push_back(slider);
+  }
 }
 
-double getSliderValueFromMouseX(double mouseX) {
-  const int sliderWidth = 220;
+void getSliderLayout(int sliderIndex, int &trackX, int &trackY, int &labelY) {
+  trackX = (int)(0.5 * (width - SLIDER_WIDTH));
+  labelY = height - SLIDER_TOP_MARGIN - sliderIndex * SLIDER_ROW_SPACING;
+  trackY = labelY - SLIDER_TRACK_OFFSET;
+}
+
+double getSliderNormalizedValueFromMouseX(int sliderIndex, double mouseX) {
   int trackX;
   int trackY;
   int labelY;
-  getSliderLayout(trackX, trackY, labelY);
+  getSliderLayout(sliderIndex, trackX, trackY, labelY);
 
-  double value = (mouseX - trackX) / sliderWidth;
-  if (value < 0.0) {
+  double normalizedValue = (mouseX - trackX) / SLIDER_WIDTH;
+  if (normalizedValue < 0.0) {
     return 0.0;
   }
-  if (value > 1.0) {
+  if (normalizedValue > 1.0) {
     return 1.0;
   }
-  return value;
+  return normalizedValue;
 }
 
-bool isMouseOverSlider(double mouseX, double mouseY) {
-  const int sliderWidth = 220;
+bool isMouseOverSlider(int sliderIndex, double mouseX, double mouseY) {
   int trackX;
   int trackY;
   int labelY;
-  getSliderLayout(trackX, trackY, labelY);
+  getSliderLayout(sliderIndex, trackX, trackY, labelY);
 
   const double uiY = height - mouseY;
-  return (mouseX >= trackX - 12 && mouseX <= trackX + sliderWidth + 12 &&
+  return (mouseX >= trackX - 12 && mouseX <= trackX + SLIDER_WIDTH + 12 &&
           uiY >= trackY - 16 && uiY <= labelY + 24);
 }
 
-double getSimulationTimeStep() {
-  return SLIDER_TIMESTEP_MIN +
-         sliderValue * (SLIDER_TIMESTEP_MAX - SLIDER_TIMESTEP_MIN);
+
+double getSliderValue(const string &id, double fallback) {
+  auto it = sliderIndexById.find(id);
+  if (it == sliderIndexById.end()) {
+    return fallback;
+  }
+  return sliders[it->second].value;
 }
 
+// SLIDER UI STEP 2: Add a getter for each slider value.
+double getSimulationTimeStep() {
+  return getSliderValue("time_step", 0.0010);
+}
+
+// SLIDER UI STEP 3: Replace direct variable usage with the getter where needed.
+
 void initializeSliderUI() {
-  addLabel(sliderLabel);
-  sliderLabel->setText("Time Step");
-
-  sliderTrack = new cPanel();
-  sliderTrack->setSize(220, 6);
-  sliderTrack->setCornerRadius(3, 3, 3, 3);
-  sliderTrack->setColor(cColorf(0.20f, 0.20f, 0.20f));
-  sliderTrack->setTransparencyLevel(0.45f);
-  camera->m_frontLayer->addChild(sliderTrack);
-
-  sliderHandle = new cPanel();
-  sliderHandle->setSize(14, 24);
-  sliderHandle->setCornerRadius(4, 4, 4, 4);
-  sliderHandle->setColor(cColorf(0.05f, 0.35f, 0.90f));
-  sliderHandle->setTransparencyLevel(0.85f);
-  camera->m_frontLayer->addChild(sliderHandle);
+  generateSliderUI();
 }
 
 void updateSliderUI() {
-  const int sliderWidth = 220;
-  int sliderX;
-  int trackY;
-  int sliderY;
-  getSliderLayout(sliderX, trackY, sliderY);
+  for (int i = 0; i < sliders.size(); i++) {
+    SliderUI &slider = sliders[i];
+    int sliderX;
+    int trackY;
+    int sliderY;
+    getSliderLayout(i, sliderX, trackY, sliderY);
 
-  sliderLabel->setText("Time Step: " + cStr(getSimulationTimeStep() * 1000.0, 2) + " ms");
-  sliderLabel->setLocalPos((int)(0.5 * (width - sliderLabel->getWidth())), sliderY);
-  sliderTrack->setLocalPos(sliderX, trackY);
-  sliderHandle->setLocalPos(sliderX + (int)(sliderValue * sliderWidth) - 7, trackY - 9);
+    slider.label->setText(slider.displayText());
+    slider.label->setLocalPos((int)(0.5 * (width - slider.label->getWidth())), sliderY);
+    slider.track->setLocalPos(sliderX, trackY);
+    slider.handle->setLocalPos(sliderX + (int)(slider.normalizedValue() * SLIDER_WIDTH) - 7,
+                               trackY - 9);
+  }
 }
 
 bool handleSliderMousePress(double mouseX, double mouseY) {
-  if (!isMouseOverSlider(mouseX, mouseY)) {
-    return false;
-  }
+  for (int i = 0; i < sliders.size(); i++) {
+    if (!isMouseOverSlider(i, mouseX, mouseY)) {
+      continue;
+    }
 
-  sliderDragging = true;
-  sliderValue = getSliderValueFromMouseX(mouseX);
-  updateSliderUI();
-  return true;
+    sliders[i].dragging = true;
+    sliders[i].setNormalizedValue(getSliderNormalizedValueFromMouseX(i, mouseX));
+    updateSliderUI();
+    return true;
+  }
+  return false;
 }
 
 bool handleSliderMouseMotion(double mouseX, double mouseY) {
-  if (!sliderDragging) {
-    return false;
-  }
+  for (int i = 0; i < sliders.size(); i++) {
+    if (!sliders[i].dragging) {
+      continue;
+    }
 
-  sliderValue = getSliderValueFromMouseX(mouseX);
-  updateSliderUI();
-  return true;
+    sliders[i].setNormalizedValue(getSliderNormalizedValueFromMouseX(i, mouseX));
+    updateSliderUI();
+    return true;
+  }
+  return false;
 }
 
 bool handleSliderMouseRelease() {
-  if (!sliderDragging) {
-    return false;
-  }
+  for (int i = 0; i < sliders.size(); i++) {
+    if (!sliders[i].dragging) {
+      continue;
+    }
 
-  sliderDragging = false;
-  return true;
+    sliders[i].dragging = false;
+    return true;
+  }
+  return false;
 }
