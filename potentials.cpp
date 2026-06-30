@@ -297,7 +297,7 @@ namespace
         PyGILState_STATE gilState = PyGILState_Ensure();
 
         // CHANGE TO RELATIVE
-        std::string scriptDir = "/mnt/c/Users/sc73369/Documents/GitHub/chai3d/haptic-device/";
+        std::string scriptDir = "./haptic-device/";
 
         PyObject *sysPath = PySys_GetObject("path");
         PyObject *pathStr = PyUnicode_FromString(scriptDir.c_str());
