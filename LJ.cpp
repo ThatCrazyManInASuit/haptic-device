@@ -1652,7 +1652,7 @@ vector<string> sliderOrder = {"time_step"};
 // SLIDER UI STEP 1B: Add each new slider's configuration here.
 // sliderConfigs[id] = {display name, min, max, default, units, display scale, display digits}
 unordered_map<string, SliderConfig> sliderConfigs = {
-  {"time_step", {"Time Step", 0.0001, 0.0020, 0.0010, "ms", 1000.0, 2}}`
+  {"time_step", {"Time Step", 0.0001, 0.0020, 0.0010, "ms", 1000.0, 2}}
 };
 
 void generateSliderUI() {
