@@ -163,9 +163,10 @@ void resetCamera() {
 
 void toggleHelpPanel() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+    
   helpPanel->setShowPanel(!helpPanel->getShowPanel());
   helpHeader->setShowEnabled(helpPanel->getShowPanel());
-  for(int i = 0; i < hotkeyKeys.size(); i++) {
+  for(int i = 0; i < hotkeyKeys.size(); i++){
       hotkeyKeys[i]->setShowEnabled(helpPanel->getShowPanel());
       hotkeyFunctions[i]->setShowEnabled(helpPanel->getShowPanel());
   }
@@ -173,37 +174,36 @@ void toggleHelpPanel() {
 
 void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
                  int a_mods) {
+  // filter calls that only include a key press
   if ((a_action != GLFW_PRESS) && (a_action != GLFW_REPEAT)) {
     return;
-  }
-
-  if ((a_key == GLFW_KEY_ESCAPE) || (a_key == GLFW_KEY_Q)) {
+  } else if ((a_key == GLFW_KEY_ESCAPE) || (a_key == GLFW_KEY_Q)) {
+    // option - exit
     glfwSetWindowShouldClose(a_window, GLFW_TRUE);
-  } else if (a_key == GLFW_KEY_F) {
+  } else if (a_key == GLFW_KEY_F)  // option - toggle fullscreen
     toggleFullscreen();
-  } else if (a_key == GLFW_KEY_U) {
+  else if (a_key == GLFW_KEY_U)
     unanchorAtoms();
-  } else if (a_key == GLFW_KEY_S) {
+  else if (a_key == GLFW_KEY_S)
     saveScreenshot();
-  } else if (a_key == GLFW_KEY_SPACE) {
+  else if (a_key == GLFW_KEY_SPACE)  // freeze simulation
     freezeAtoms = !freezeAtoms;
-  } else if (a_key == GLFW_KEY_C) {
+  else if (a_key == GLFW_KEY_C)  // save atoms to con file
     saveConFile();
-  } else if (a_key == GLFW_KEY_A) {
+  else if (a_key == GLFW_KEY_A)
     anchorAtoms();
-  } else if (a_key == GLFW_KEY_UP || a_key == GLFW_KEY_DOWN) {
+  else if (a_key == GLFW_KEY_UP || a_key == GLFW_KEY_DOWN)
     moveCameraVertical(a_key == GLFW_KEY_UP);
-  } else if (a_key == GLFW_KEY_RIGHT || a_key == GLFW_KEY_LEFT) {
+  else if (a_key == GLFW_KEY_RIGHT || a_key == GLFW_KEY_LEFT)
     moveCameraHorizontal(a_key == GLFW_KEY_RIGHT);
-  } else if (a_key == GLFW_KEY_LEFT_BRACKET ||
-             a_key == GLFW_KEY_RIGHT_BRACKET) {
+  else if (a_key == GLFW_KEY_LEFT_BRACKET ||
+             a_key == GLFW_KEY_RIGHT_BRACKET)
     zoomCamera(a_key == GLFW_KEY_RIGHT_BRACKET);
-  } else if (a_key == GLFW_KEY_R) {
+  else if (a_key == GLFW_KEY_R)
     resetCamera();
-  } else if ((a_key == GLFW_KEY_LEFT_CONTROL || a_key == GLFW_KEY_RIGHT_CONTROL) &&
-             a_action == GLFW_PRESS) {
+  else if((a_key == GLFW_KEY_LEFT_CONTROL || a_key == GLFW_KEY_RIGHT_CONTROL) &&
+           a_action == GLFW_PRESS)
     toggleHelpPanel();
-  }
 }
 
 void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {

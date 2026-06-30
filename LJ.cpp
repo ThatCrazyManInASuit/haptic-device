@@ -90,9 +90,6 @@ cStereoMode stereoMode = C_STEREO_DISABLED;
 // Fullscreen mode
 bool fullscreen = false;
 
-//debug menu off
-bool showDebug = false;
-
 //------------------------------------------------------------------------------
 // DECLARED CONSTANTS
 //------------------------------------------------------------------------------
@@ -225,15 +222,6 @@ cLabel *potentialLabel;
 cLabel *scope_upper;
 cLabel *scope_lower;
 
-//label for debug force
-vector<cLabel *> debugLabels;
-
-//vector for resetting
-vector<cVector3d> initialPositions;
-
-//label for each atom
-vector<cLabel *> debugAtomLabels;
-
 // a flag that indicates if the haptic simulation is currently running
 bool simulationRunning = false;
 
@@ -336,7 +324,6 @@ void initializeAtomPosition(Atom *new_atom);
 void initializeCalculator(int argc, char *argv[], std::array<double, 9> aseCell,
     std::array<int, 3> asePbc);
 void initializeLabels();
-void initializeAtomLabels();
 void initializeHotkeyLabels();
 void initializePotentialLabel();
 void initializePotentialEnergyPlot();
@@ -487,11 +474,6 @@ int main(int argc, char *argv[]) {
 
   // PLACE ATOMS
   placeAtoms(aseCell, asePbc, argc, argv);
-  initializeAtomLabels(); 
-  for (int i = 0; i < spheres.size(); i++) {
-    initialPositions.push_back(spheres[i]->getLocalPos());
-  }
-
 
   // determine potential if specified
   if (argc > 3) {
@@ -836,10 +818,6 @@ void initializeLabels() {
   addLabel(isFrozen); // frozen state label
   addLabel(camera_pos); // camera position label
   addLabel(potentialLabel); // energy surface label
-  addDebugLabel("Force magnitude: ");
-  addDebugLabel("Atom pos: ");  
-  addDebugLabel("Nearest neighbor: ");
-  addDebugLabel("Max force: ");
 
   // Add labels to the graph
   addLabel(scope_upper); 
@@ -857,6 +835,7 @@ void initializeLabels() {
   writeConLabel->setShowEnabled(false);
   screenshotLabel->setShowEnabled(false);
 
+  //initializeHotkeyLabels();
 
   screenshotLabel->setText("Screenshot taken");
   writeConLabel->setText("Con file written");
@@ -866,18 +845,6 @@ void initializeLabels() {
   // sets the text for the camera position to appear on screen
   camera_pos->setLocalPos(0, 30, 0);
   updateCameraLabel(camera_pos, camera);
-}
-
-void initializeAtomLabels(){
-  cFontPtr atomLabelFont = NEW_CFONT_CALIBRI_20();
-    for (int i = 0; i < spheres.size(); i++) {
-        cLabel *label = new cLabel(atomLabelFont);
-        label->m_fontColor.setBlack();
-        label->setText(to_string(i));
-        label->setShowEnabled(false);
-        camera->m_frontLayer->addChild(label);
-        debugAtomLabels.push_back(label);
-  }
 }
 
 void initializeHotkeyLabels() {
@@ -892,8 +859,6 @@ void initializeHotkeyLabels() {
   addHotkeyLabel("s", "screenshot atoms");
   addHotkeyLabel("c", "save configuration to .con");
   addHotkeyLabel("SPACE", "freeze atoms");
-  addHotkeyLabel("d", "toggle debug info");
-  addHotkeyLabel("t", "reset atom structure");
   addHotkeyLabel("CTRL", "toggle help panel");
 }
 
@@ -954,7 +919,7 @@ void initializeHelpPanel() {
 
   helpPanel = new cPanel();
   helpPanel->setColor(panelColor);
-  helpPanel->setSize(520, 600);
+  helpPanel->setSize(520, 500);
   camera->m_frontLayer->addChild(helpPanel);
   helpPanel->setShowPanel(false);
 
@@ -1054,6 +1019,7 @@ void updateLabels() {
   double z = hapticPosition.get(2);
   hapticPositionLabel->setText("Position: " + cStr(x, 2) + ", " + cStr(y, 2) + ", " + cStr(z, 2));
 
+
   updateCameraLabel(camera_pos, camera);
 
   string trueFalse = freezeAtoms.load() ? "true" : "false";
@@ -1072,79 +1038,6 @@ void updateLabels() {
     tempKeyLabel->setLocalPos(width - 530, height - 105 - i * 35);
     tempFuncLabel->setLocalPos(width - 350, height - 105 - i * 35);
   }
-
-  if (showDebug) {
-    // current atom force magnitude
-    cVector3d force = spheres[currentIndex]->getForce();
-    debugLabels[0]->setText("Force magnitude: " + cStr(force.length(), 5));
-
-    // current atom position
-    cVector3d pos = spheres[currentIndex]->getLocalPos();
-    debugLabels[1]->setText("Atom pos: (" + cStr(pos.x(), 3) + ", " + cStr(pos.y(), 3) + ", " + cStr(pos.z(), 3) + ")");
-
-    // nearest neighbor distance
-    double minDist = std::numeric_limits<double>::max();
-    for (int i = 0; i < spheres.size(); i++) {
-      if (i != currentIndex) {
-        double dist = cDistance(spheres[currentIndex]->getLocalPos(), spheres[i]->getLocalPos());
-        if (dist < minDist) minDist = dist;
-      }
-    }
-    debugLabels[2]->setText("Nearest neighbor: " + cStr(minDist / 0.02, 5) + " Ang");
-
-    // max force across all atoms
-    double maxForce = 0;
-    int maxForceIndex = 0;
-    for (int i = 0; i < spheres.size(); i++) {
-      double mag = spheres[i]->getForce().length();
-      if (mag > maxForce) {
-        maxForce = mag;
-        maxForceIndex = i;
-      }
-    }
-    debugLabels[3]->setText("Max force: " + cStr(maxForce, 5) + " (atom " + to_string(maxForceIndex) + ")");
-
-    // position and show all debug labels
-    for (int i = 0; i < debugLabels.size(); i++) {
-      debugLabels[i]->setLocalPos(width - 300, 80 + i * 20);
-      debugLabels[i]->setShowEnabled(true);
-    }
-
-    // atom index labels
-    for (int i = 0; i < debugAtomLabels.size(); i++) {
-      cVector3d atomPos = spheres[i]->getLocalPos();
-
-      cVector3d camPos = camera->getLocalPos();
-      cVector3d camLook = camera->getLookVector();
-      cVector3d camUp = camera->getUpVector();
-      cVector3d camRight = camera->getRightVector();
-
-      cVector3d toAtom = atomPos - camPos;
-
-      double depth = toAtom.dot(camLook);
-      if (depth > 0) {
-        double fov = camera->getFieldViewAngleRad();
-        double scaleY = (0.5 * height) / tan(0.5 * fov);
-        double scaleX = scaleY;
-
-        double screenX = (toAtom.dot(camRight) / depth) * scaleX + 0.5 * width;
-        double screenY = (toAtom.dot(camUp) / depth) * scaleY + 0.5 * height;
-
-        debugAtomLabels[i]->setLocalPos((int)screenX, (int)screenY);
-        debugAtomLabels[i]->setShowEnabled(true);
-      } else {
-        debugAtomLabels[i]->setShowEnabled(false);
-      }
-    }
-
-  } else {
-    for (int i = 0; i < debugLabels.size(); i++) {
-      debugLabels[i]->setShowEnabled(false);
-    }
-    for (int i = 0; i < debugAtomLabels.size(); i++) {
-      debugAtomLabels[i]->setShowEnabled(false);
-    }
-  }
 }
 
 void updateGraphics(void) {
@@ -1152,18 +1045,14 @@ void updateGraphics(void) {
 
   // UPDATE WIDGETS
   updateLabels();
-  helpPanel->setLocalPos(width - 550, height - 600);
+  helpPanel->setLocalPos(width - 550, height - 530);
   helpHeader->setLocalPos(width - 490, height - 70);
   
   const double potentialEnergy = displayedPotentialEnergy.load();
   LJ_num->setText("Potential Energy: " + cStr(potentialEnergy, 5));
   LJ_num->setLocalPos(0, 15, 0);
 
-  int anchoredCount = 0;
-  for (int i = 0; i < spheres.size(); i++) {
-    if (spheres[i]->isAnchor()) anchoredCount++;
-  }
-  num_anchored->setText(to_string(anchoredCount) + " anchored / " +
+  num_anchored->setText(to_string(displayedAnchoredCount.load()) + " anchored / " +
                         to_string(spheres.size()) + " total");
   num_anchored->setLocalPos((width - num_anchored->getWidth()) - 5, 0);
 
@@ -1184,6 +1073,7 @@ void updateGraphics(void) {
   if (err != GL_NO_ERROR)
     cout << "Error: " << gluErrorString(err) << endl;
 }
+
 
 
 void switchCamera() {

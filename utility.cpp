@@ -123,15 +123,6 @@ void addHotkeyLabel(std::string keys, std::string function){
   hotkeyKeys.push_back(tempKeyLabel);
   hotkeyFunctions.push_back(tempFuncLabel);
 }
-void addDebugLabel(std::string text) {
-    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-    chai3d::cLabel *label = new chai3d::cLabel(font);
-    label->m_fontColor.setBlack();
-    label->setText(text);
-    label->setShowEnabled(false);
-    camera->m_frontLayer->addChild(label);
-    debugLabels.push_back(label);
-}
 
 // add status labels
 void addLabel(chai3d::cLabel *&label) {
