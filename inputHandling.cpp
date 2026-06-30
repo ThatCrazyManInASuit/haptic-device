@@ -7,6 +7,17 @@
 
 int just_unanchored = 0;
 
+// CHAI3D renders into the framebuffer, which is measured in pixels. On HiDPI /
+// Retina displays the framebuffer is larger than the window (measured in points),
+// so cursor coordinates from GLFW (window points) must be scaled up to the same
+// pixel space as width/height before being used for picking or world math.
+static void scaleCursorToPixels(double &a_x, double &a_y) {
+  float xscale, yscale;
+  glfwGetWindowContentScale(window, &xscale, &yscale);
+  a_x *= xscale;
+  a_y *= yscale;
+}
+
 void toggleFullscreen() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   // toggle state variable
@@ -225,11 +236,15 @@ void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
         // object and which is parallel to the camera plane
         double distanceToObjectPlane = vCameraObject.length() * cos(angle);
 
+        // cursor is in window points; scale to framebuffer pixels to match width/height
+        double posX = a_posX, posY = a_posY;
+        scaleCursorToPixels(posX, posY);
+
         // convert the pixel in mouse space into a relative position in the world
         double factor = (distanceToObjectPlane * tan(0.5 *
                         camera->getFieldViewAngleRad())) / (0.5 * height);
-        double posRelX = factor * (a_posX - (0.5 * width));
-        double posRelY = factor * ((height - a_posY) - (0.5 * height));
+        double posRelX = factor * (posX - (0.5 * width));
+        double posRelY = factor * ((height - posY) - (0.5 * height));
 
         // compute the new position in world coordinates
         cVector3d pos = camera->getLocalPos() +
@@ -256,6 +271,7 @@ void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
     cCollisionSettings settings;
     if (a_button == GLFW_MOUSE_BUTTON_LEFT && a_action == GLFW_PRESS) {
         glfwGetCursorPos(window, &x, &y);
+        scaleCursorToPixels(x, y); // window points -> framebuffer pixels
         bool hit =
         camera->selectWorld(x, (height - y), width, height, recorder, settings);
         if (hit) {
@@ -268,6 +284,7 @@ void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
         }
     } else if (a_button == GLFW_MOUSE_BUTTON_RIGHT && a_action == GLFW_PRESS) {
         glfwGetCursorPos(window, &x, &y);
+        scaleCursorToPixels(x, y); // window points -> framebuffer pixels
         bool hit =
         camera->selectWorld(x, (height - y), width, height, recorder, settings);
         if (hit) {

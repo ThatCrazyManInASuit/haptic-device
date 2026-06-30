@@ -242,10 +242,9 @@ cThread *hapticsThread;
 // a handle to window display context
 GLFWwindow *window = NULL;
 
-// current width of window
+// current framebuffer (render) size in pixels.
+// NOTE: on HiDPI / Retina displays this is LARGER than the window size in points.
 int width = 0;
-
-// current height of window
 int height = 0;
 
 // swap interval for the display context (vertical synchronization)
@@ -327,8 +326,8 @@ void initializeHelpPanel();
 void initializeHapticThread();
 void runGraphicsLoop();
 
-// callback when the window display is resized
-void windowSizeCallback(GLFWwindow *a_window, int a_width, int a_height);
+// callback when the framebuffer is resized (size in pixels, not window points)
+void framebufferSizeCallback(GLFWwindow *a_window, int a_width, int a_height);
 
 // callback when an error GLFW occurs
 void errorCallback(int error, const char *a_description);
@@ -492,8 +491,8 @@ int main(int argc, char *argv[]) {
   return 0; // exit
 }
 
-void windowSizeCallback(GLFWwindow *a_window, int a_width, int a_height) {
-  // update window size
+void framebufferSizeCallback(GLFWwindow *a_window, int a_width, int a_height) {
+  // update framebuffer (pixel) size used for rendering
   width = a_width;
   height = a_height;
 }
@@ -543,12 +542,12 @@ void initializeGLFW() {
     throw std::runtime_error("Failed to create window!");
   }
 
-  glfwGetWindowSize(window, &width, &height); // get width and height of window
+  glfwGetFramebufferSize(window, &width, &height); // framebuffer size in pixels (HiDPI-aware)
   glfwSetWindowPos(window, windowX, windowY); // set position of window
   glfwSetKeyCallback(window, keyCallback); // set key callback
   glfwSetCursorPosCallback(window, mouseMotionCallback); // set mouse position callback
   glfwSetMouseButtonCallback(window, mouseButtonCallback); // set mouse button callback
-  glfwSetWindowSizeCallback(window, windowSizeCallback); // set resize callback
+  glfwSetFramebufferSizeCallback(window, framebufferSizeCallback); // track render size on resize
   glfwMakeContextCurrent(window); // set current display context
   glfwSwapInterval(swapInterval); // sets the swap interval for the current display context
 }
@@ -923,13 +922,13 @@ void initializeprevPositions() {
 }
 
 void runGraphicsLoop() {
-  windowSizeCallback(window, width, height); // call window size callback at initialization
+  framebufferSizeCallback(window, width, height); // initialize framebuffer size
   cPrecisionClock keyboardModeClock;
   keyboardModeClock.reset();
   keyboardModeClock.start();
   // main graphic loop
   while (!glfwWindowShouldClose(window)) {
-    glfwGetWindowSize(window, &width, &height); // get width and height of window
+    glfwGetFramebufferSize(window, &width, &height); // framebuffer size in pixels (HiDPI-aware)
     if (!hapticDevice) {
       keyboardModeClock.stop();
       double timeInterval = cMin(KEYBOARD_SIM_DT_MAX, keyboardModeClock.getCurrentTimeSeconds());
@@ -1039,7 +1038,7 @@ void updateGraphics(void) {
 
   // RENDER SCENE
   world->updateShadowMaps(false, false); // update shadow maps (if any)
-  camera->renderView(width, height); // render world
+  camera->renderView(width, height); // render world (width/height are framebuffer pixels)
   glFinish(); // wait until all GL commands are completed
   GLenum err = glGetError(); // check for any OpenGL errors
   if (err != GL_NO_ERROR)
