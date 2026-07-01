@@ -6,19 +6,17 @@ import pickle
 import numpy as np
 import io
 import struct
+import time
 
-USERNAME = "ik4335"
-REMOTE_PYTHON = f"/home/{USERNAME}/venv/bin/python3"
+USERNAME = "root"
+REMOTE_PYTHON = f"/root/.venv/bin/python3"
 
 class Atoms:
     def __init__(self, **kwargs):
+        self.num_atoms = len(kwargs["numbers"])
         self.ssh = paramiko.SSHClient()
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self.ssh.connect(
-            hostname="fri.cm.utexas.edu",
-            username=USERNAME
-        )
-
+        self.ssh.connect(hostname="hsra.cluster.lan", username=USERNAME)
         sftp = self.ssh.open_sftp()
         sftp.put("haptic-device/server.py", "/tmp/server.py")
         sftp.close()
@@ -29,26 +27,22 @@ class Atoms:
             if "Ready to accept instructions" in line:
                 print("Server is ready")
                 break
+
         data = pickle.dumps(kwargs)
-        self.stdin.write(b"A" + struct.pack("!I", len(data)))
+        self.stdin.write(struct.pack("!I", len(data)))
         self.stdin.write(data)
         self.stdin.flush()
 
     def set_positions(self, positions):
-        data = pickle.dumps(positions)
-        self.stdin.write(b"S" + struct.pack("!I", len(data)))
-        self.stdin.write(data)
+        self.stdin.write(np.array(positions).tobytes())
         self.stdin.flush()
 
     def get_forces(self):
-        self.stdin.write(b"G" + struct.pack("!I", 0))
-        self.stdin.flush()
-        self.cached_potential_energy = struct.unpack("d", self.stdout.read(8))[0]
-        length = struct.unpack("!I", self.stdout.read(4))[0]
-        return np.load(io.BytesIO(self.stdout.read(length)))
+        data = self.stdout.read(np.dtype(np.float64).itemsize * self.num_atoms * 3)
+        return np.frombuffer(data, dtype=np.float64).reshape((self.num_atoms, 3))
     
     def get_potential_energy(self):
-        return self.cached_potential_energy
+        return struct.unpack("d", self.stdout.read(8))[0]
 
 def _resolve_calculator(spec):
 
