@@ -270,14 +270,14 @@ namespace
             className = "EMT";
             kwargsText.clear();
         } else if (spec.rfind("uma", 0) == 0) {
-            moduleName = "uma_wrapper";
+            moduleName = "calculator";
             className = "create_calculator";
             kwargsText = spec;
         } else {
             size_t firstColon = spec.find(':');
             if (firstColon == std::string::npos) {
                 std::cerr << "ASE calculator spec must be empty, a known alias "
-                            "(`lj`, `morse`, `emt`, `uma`), or `module:Class[:kwargs]`."
+                            "(`lj`, `morse`, `emt`, `uma`, `uma-remote`), or `module:Class[:kwargs]`."
                         << std::endl;
                 std::exit(1);
             }
@@ -304,14 +304,14 @@ namespace
         PyList_Append(sysPath, pathStr);
         Py_DECREF(pathStr);
 
-        aseModule = importModule("ase");
+        aseModule = importModule(spec == "uma-remote" ? "calculator" : "ase");
         atomsClass = getCallable(aseModule, "Atoms");
 
         PyObject *calcArgs = PyTuple_New(0);
         PyObject *calcKwargs = nullptr;
 
-        if (moduleName == "uma_wrapper" && className == "create_calculator") {
-            PyObject *wrapperModule = importModule("uma_wrapper");
+        if (moduleName == "calculator" && className == "create_calculator") {
+            PyObject *wrapperModule = importModule("calculator");
             PyObject *resolver = getCallable(wrapperModule, "create_calculator");
 
             PyObject *specObj = PyUnicode_FromString(kwargsText.c_str());

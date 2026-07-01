@@ -1,15 +1,52 @@
 from importlib import import_module
 from ast import literal_eval
 
-from ase import Atoms
+import paramiko
+import pickle
+import numpy as np
+import struct
 
-from fairchem.core import pretrained_mlip, FAIRChemCalculator
+USERNAME = "ik4335"
+REMOTE_PYTHON = f"/home/{USERNAME}/uma_env/bin/python3"
 
+class Atoms:
+    def __init__(self, **kwargs):
+        self.num_atoms = len(kwargs["numbers"])
+        self.ssh = paramiko.SSHClient()
+        self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self.ssh.connect(hostname="fri.cm.utexas.edu", username=USERNAME)
+        sftp = self.ssh.open_sftp()
+        sftp.put("haptic-device/server.py", "/tmp/server.py")
+        sftp.close()
+        self.stdin, self.stdout, self.stderr = self.ssh.exec_command(f"{REMOTE_PYTHON} -u /tmp/server.py", get_pty=False)
+        print("Waiting for server to be ready...")
+        while True:
+            line = self.stdout.readline()
+            if "Ready to accept instructions" in line:
+                print("Server is ready")
+                break
+
+        data = pickle.dumps(kwargs)
+        self.stdin.write(struct.pack("!I", len(data)))
+        self.stdin.write(data)
+        self.stdin.flush()
+
+    def set_positions(self, positions):
+        self.stdin.write(np.array(positions).tobytes())
+        self.stdin.flush()
+
+    def get_forces(self):
+        data = self.stdout.read(np.dtype(np.float64).itemsize * self.num_atoms * 3)
+        return np.frombuffer(data, dtype=np.float64).reshape((self.num_atoms, 3))
+    
+    def get_potential_energy(self):
+        return struct.unpack("d", self.stdout.read(8))[0]
 
 _uma_predictor_cache = {}
 
 
 def _get_uma_predictor(model_name="uma-s-1p2", device="cuda"):
+    from fairchem.core import pretrained_mlip
     key = (model_name, device)
 
     if key not in _uma_predictor_cache:
@@ -21,8 +58,7 @@ def _get_uma_predictor(model_name="uma-s-1p2", device="cuda"):
 
     return _uma_predictor_cache[key]
 
-
-def _resolve_calculator(spec):
+def create_calculator(spec):
 
     if not spec or spec in {"lj", "lennard-jones"}:
         module_name = "ase.calculators.lj"
@@ -48,7 +84,8 @@ def _resolve_calculator(spec):
         calculator_class = getattr(import_module(module_name), class_name)
         return calculator_class(**kwargs)
 
-    elif spec.startswith("uma"):
+    elif spec == "uma":
+        from fairchem.core import FAIRChemCalculator
 
         # Examples:
         # "uma"
@@ -73,6 +110,9 @@ def _resolve_calculator(spec):
             task_name=task_name
         )
 
+    elif spec == "uma-remote":
+        return None
+
     else:
         parts = spec.split(":", 2)
 
@@ -91,35 +131,3 @@ def _resolve_calculator(spec):
         calculator_class = getattr(import_module(module_name), class_name)
 
         return calculator_class(**kwargs)
-
-
-def get_values(numbers, positions, cell=None, pbc=None, calculator_spec=""):
-
-    atoms = Atoms(
-        numbers=numbers,
-        positions=positions,
-        cell=cell,
-        pbc=pbc
-    )
-
-    # Required for UMA omol task
-    atoms.info["charge"] = 0
-    atoms.info["spin"] = 1
-
-    atoms.calc = _resolve_calculator(calculator_spec)
-
-    return {
-        "forces": atoms.get_forces().tolist(),
-        "energy": atoms.get_potential_energy(),
-    }
-
-
-if __name__ == "__main__":
-
-    sample = get_values(
-        numbers=[1, 1],
-        positions=[[0, 0, 0], [1.0, 0, 0]],
-        calculator_spec="uma:omol"
-    )
-
-    print(sample)
