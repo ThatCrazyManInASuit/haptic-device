@@ -90,18 +90,3 @@ $(OBJ_DIR)/%.o : $(SRC_DIR)/%.cpp
 clean:
 	rm -f $(TARGET) $(OBJECTS) *~ TAGS core *.bak #*#
 	-rmdir $(OBJ_DIR)
-
-PYTHON = $(TOP_DIR)/haptic-device/uma_env/bin/python
-
-CXXFLAGS += $(shell $(PYTHON) -c "import sysconfig; print('-I' + sysconfig.get_paths()['include'])")
-
-LDFLAGS += $(shell $(PYTHON) -c "import sysconfig; print('-L' + sysconfig.get_config_var('LIBDIR'))")
-
-LDLIBS += -lpython3.11
-# Band-aid fix, need to find permanent fix 
-
-CXXFLAGS += -I$(TOP_DIR)/extras/GLFW/include -g
-
-LDFLAGS  += -L$(TOP_DIR)/extras/GLFW/lib/release/lin-x86_64-cc 
-
-LDLIBS   += -lglfw -L/usr/lib/python3.11/config-3.11-x86_64-linux-gnu -L/usr/lib/x86_64-linux-gnu  -ldl  -lm 
