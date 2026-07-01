@@ -58,7 +58,7 @@ def _get_uma_predictor(model_name="uma-s-1p2", device="cuda"):
 
     return _uma_predictor_cache[key]
 
-def _resolve_calculator(spec):
+def create_calculator(spec):
 
     if not spec or spec in {"lj", "lennard-jones"}:
         module_name = "ase.calculators.lj"

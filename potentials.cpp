@@ -270,7 +270,7 @@ namespace
             className = "EMT";
             kwargsText.clear();
         } else if (spec.rfind("uma", 0) == 0) {
-            moduleName = "uma_wrapper";
+            moduleName = "calculator";
             className = "create_calculator";
             kwargsText = spec;
         } else {
@@ -310,8 +310,8 @@ namespace
         PyObject *calcArgs = PyTuple_New(0);
         PyObject *calcKwargs = nullptr;
 
-        if (moduleName == "uma_wrapper" && className == "create_calculator") {
-            PyObject *wrapperModule = importModule("uma_wrapper");
+        if (moduleName == "calculator" && className == "create_calculator") {
+            PyObject *wrapperModule = importModule("calculator");
             PyObject *resolver = getCallable(wrapperModule, "create_calculator");
 
             PyObject *specObj = PyUnicode_FromString(kwargsText.c_str());
