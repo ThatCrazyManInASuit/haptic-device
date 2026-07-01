@@ -42,6 +42,22 @@ class Atoms:
     def get_potential_energy(self):
         return struct.unpack("d", self.stdout.read(8))[0]
 
+_uma_predictor_cache = {}
+
+
+def _get_uma_predictor(model_name="uma-s-1p2", device="cuda"):
+    from fairchem.core import pretrained_mlip
+    key = (model_name, device)
+
+    if key not in _uma_predictor_cache:
+        _uma_predictor_cache[key] = pretrained_mlip.get_predict_unit(
+            model_name,
+            device=device,
+            inference_settings="turbo"
+        )
+
+    return _uma_predictor_cache[key]
+
 def _resolve_calculator(spec):
 
     if not spec or spec in {"lj", "lennard-jones"}:
@@ -68,9 +84,34 @@ def _resolve_calculator(spec):
         calculator_class = getattr(import_module(module_name), class_name)
         return calculator_class(**kwargs)
 
-    elif spec.startswith("uma"):
+    elif spec == "uma":
+        from fairchem.core import FAIRChemCalculator
+
+        # Examples:
+        # "uma"
+        # "uma:omol"
+        # "uma:omat"
+        # "uma:oc20"
+
+        parts = spec.split(":")
+
+        task_name = "oc20"
+
+        if len(parts) > 1:
+            task_name = parts[1]
+
+        predictor = _get_uma_predictor(
+            model_name="uma-s-1p2",
+            device="cuda"
+        )
+
+        return FAIRChemCalculator(
+            predictor,
+            task_name=task_name
+        )
+
+    elif spec == "uma-remote":
         return None
-        return FAIRChemCalculator()
 
     else:
         parts = spec.split(":", 2)
