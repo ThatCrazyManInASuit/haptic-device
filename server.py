@@ -1,7 +1,7 @@
 from fairchem.core import pretrained_mlip, FAIRChemCalculator
 from ase import Atoms
 from ase.calculators.lj import LennardJones
-import io, sys, numpy as np
+import sys, numpy as np
 import pickle
 import struct
 
@@ -11,8 +11,6 @@ import struct
 #    inference_settings="turbo"
 #)
 
-calculator = LennardJones()
-# calculator = FAIRChemCalculator(predictor, "uma")
 print("Ready to accept instructions", flush=True)
 
 length = struct.unpack("!I", sys.stdin.buffer.read(4))[0]

@@ -4,19 +4,17 @@ from ast import literal_eval
 import paramiko
 import pickle
 import numpy as np
-import io
 import struct
-import time
 
-USERNAME = "root"
-REMOTE_PYTHON = f"/root/.venv/bin/python3"
+USERNAME = "ik4335"
+REMOTE_PYTHON = f"/home/{USERNAME}/uma_env/bin/python3"
 
 class Atoms:
     def __init__(self, **kwargs):
         self.num_atoms = len(kwargs["numbers"])
         self.ssh = paramiko.SSHClient()
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self.ssh.connect(hostname="hsra.cluster.lan", username=USERNAME)
+        self.ssh.connect(hostname="fri.cm.utexas.edu", username=USERNAME)
         sftp = self.ssh.open_sftp()
         sftp.put("haptic-device/server.py", "/tmp/server.py")
         sftp.close()
