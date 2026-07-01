@@ -304,7 +304,7 @@ namespace
         PyList_Append(sysPath, pathStr);
         Py_DECREF(pathStr);
 
-        aseModule = importModule("ase");
+        aseModule = importModule("calculator");
         atomsClass = getCallable(aseModule, "Atoms");
 
         PyObject *calcArgs = PyTuple_New(0);
