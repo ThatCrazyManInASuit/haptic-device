@@ -1,26 +1,54 @@
 from importlib import import_module
 from ast import literal_eval
 
-from ase import Atoms
+import paramiko
+import pickle
+import numpy as np
+import io
+import struct
 
-from fairchem.core import pretrained_mlip, FAIRChemCalculator
+USERNAME = "ik4335"
+REMOTE_PYTHON = f"/home/{USERNAME}/venv/bin/python3"
 
-
-_uma_predictor_cache = {}
-
-
-def _get_uma_predictor(model_name="uma-s-1p2", device="cuda"):
-    key = (model_name, device)
-
-    if key not in _uma_predictor_cache:
-        _uma_predictor_cache[key] = pretrained_mlip.get_predict_unit(
-            model_name,
-            device=device,
-            inference_settings="turbo"
+class Atoms:
+    def __init__(self, **kwargs):
+        self.ssh = paramiko.SSHClient()
+        self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self.ssh.connect(
+            hostname="fri.cm.utexas.edu",
+            username=USERNAME
         )
 
-    return _uma_predictor_cache[key]
+        sftp = self.ssh.open_sftp()
+        sftp.put("haptic-device/server.py", "/tmp/server.py")
+        sftp.close()
+        self.stdin, self.stdout, self.stderr = self.ssh.exec_command(f"{REMOTE_PYTHON} -u /tmp/server.py", get_pty=False)
+        print("Waiting for server to be ready...")
+        while True:
+            line = self.stdout.readline()
+            if "Ready to accept instructions" in line:
+                print("Server is ready")
+                break
+        data = pickle.dumps(kwargs)
+        self.stdin.write(b"A" + struct.pack("!I", len(data)))
+        self.stdin.write(data)
+        self.stdin.flush()
 
+    def set_positions(self, positions):
+        data = pickle.dumps(positions)
+        self.stdin.write(b"S" + struct.pack("!I", len(data)))
+        self.stdin.write(data)
+        self.stdin.flush()
+
+    def get_forces(self):
+        self.stdin.write(b"G" + struct.pack("!I", 0))
+        self.stdin.flush()
+        self.cached_potential_energy = struct.unpack("d", self.stdout.read(8))[0]
+        length = struct.unpack("!I", self.stdout.read(4))[0]
+        return np.load(io.BytesIO(self.stdout.read(length)))
+    
+    def get_potential_energy(self):
+        return self.cached_potential_energy
 
 def _resolve_calculator(spec):
 
@@ -49,29 +77,8 @@ def _resolve_calculator(spec):
         return calculator_class(**kwargs)
 
     elif spec.startswith("uma"):
-
-        # Examples:
-        # "uma"
-        # "uma:omol"
-        # "uma:omat"
-        # "uma:oc20"
-
-        parts = spec.split(":")
-
-        task_name = "oc20"
-
-        if len(parts) > 1:
-            task_name = parts[1]
-
-        predictor = _get_uma_predictor(
-            model_name="uma-s-1p2",
-            device="cuda"
-        )
-
-        return FAIRChemCalculator(
-            predictor,
-            task_name=task_name
-        )
+        return None
+        return FAIRChemCalculator()
 
     else:
         parts = spec.split(":", 2)
@@ -91,35 +98,3 @@ def _resolve_calculator(spec):
         calculator_class = getattr(import_module(module_name), class_name)
 
         return calculator_class(**kwargs)
-
-
-def get_values(numbers, positions, cell=None, pbc=None, calculator_spec=""):
-
-    atoms = Atoms(
-        numbers=numbers,
-        positions=positions,
-        cell=cell,
-        pbc=pbc
-    )
-
-    # Required for UMA omol task
-    atoms.info["charge"] = 0
-    atoms.info["spin"] = 1
-
-    atoms.calc = _resolve_calculator(calculator_spec)
-
-    return {
-        "forces": atoms.get_forces().tolist(),
-        "energy": atoms.get_potential_energy(),
-    }
-
-
-if __name__ == "__main__":
-
-    sample = get_values(
-        numbers=[1, 1],
-        positions=[[0, 0, 0], [1.0, 0, 0]],
-        calculator_spec="uma:omol"
-    )
-
-    print(sample)
