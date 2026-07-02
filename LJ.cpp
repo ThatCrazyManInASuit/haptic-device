@@ -53,7 +53,9 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <atomic>
@@ -120,6 +122,14 @@ const double MAX_ATOM_STEP = 0.01;
 // Scales the distance betweens atoms
 const double DIST_SCALE = .02;
 
+// atom pairs whose centers are closer than this (world units) are considered
+// bonded and get a connecting line drawn between them when bond rendering is on
+const double BOND_DISTANCE_THRESHOLD = SPHERE_RADIUS * 5.0;
+
+// distance (world units) the current (controlled) atom moves per keyboard
+// nudge via the I/J/K/L/O/P movement keys
+const double ATOM_MOVE_STEP = SPHERE_RADIUS;
+
 // boundary conditions
 const double BOUNDARY_LIMIT = .5;
 const cVector3d northPlanePos = cVector3d(0, BOUNDARY_LIMIT, 0);
@@ -183,11 +193,24 @@ std::atomic<HapticMode> hapticMode(HapticMode::Position);
 // HAPTIC_DEVICE_TIME_STEP and changeable live via the IPC "set timestep" command
 std::atomic<double> simulationTimeStep(0.001);
 
+// standby/return-to-center haptic tuning parameters used by standbyModeUpdate,
+// changeable live via the IPC "set settling_err/k_return/k_dampen/return_delay"
+// commands (see setLiveSettlingError/setLiveKReturn/setLiveKDampen/setLiveReturnDelay)
+std::atomic<double> settlingError(0.05);
+std::atomic<double> kReturn(25.0);
+std::atomic<double> kDampen(0.0); // 0 = no damping, matching original return behavior
+std::atomic<double> returnDelaySeconds(2.5);
+
 // highest stiffness the current haptic device can render
 double hapticDeviceMaxStiffness;
 
 // sphere objects
 vector<Atom *> spheres;
+
+// lines drawn between bonded atom pairs, keyed by sorted (sphere index) pairs.
+// Lines are created lazily and hidden (not removed) when a pair un-bonds so
+// they can be cheaply re-shown if the pair drifts back within range.
+map<pair<int, int>, cShapeLine *> bondLines;
 
 // a colored background
 cBackground *background;
@@ -270,6 +293,9 @@ cVector3d selectedPoint;
 
 
 std::atomic<bool> freezeAtoms(false); // determine if atoms should be frozen
+std::atomic<bool> renderAtoms(true); // determine if atom spheres should be drawn
+std::atomic<bool> renderForceVectors(true); // determine if force vector lines should be drawn
+std::atomic<bool> renderBonds(true); // determine if bond lines should be drawn
 double centerCoords[3] = {50.0, 50.0, 50.0}; // save coordinates of central atom
 LocalPotential energySurface = LENNARD_JONES; // default potential is Lennard Jones
 bool global_min_known = true; // check if able to read in the global min
@@ -334,6 +360,10 @@ void errorCallback(int error, const char *a_description);
 // this function updates the draw positions
 void updateGraphics(void);
 
+// recomputes which atom pairs are within BOND_DISTANCE_THRESHOLD of each
+// other and shows/hides/creates the line connecting each bonded pair
+void updateBonds(void);
+
 // this function contains the main haptics simulation loop
 void updateHaptics(void);
 
@@ -341,6 +371,10 @@ void updateHaptics(void);
 cVector3d stepSimulation(const cVector3d &position,
                          const double timeInterval,
                          const bool hasHapticDevice);
+
+// nudge the current (controlled) atom one keyboard step along the camera's
+// right/up/look axes; each argument is -1, 0, or 1
+void moveCurrentAtom(double rightAmount, double upAmount, double forwardAmount);
 
 // this function closes the application
 void close(void);
@@ -488,9 +522,12 @@ int main(int argc, char *argv[]) {
   }
 
   // WIDGETS
+  // helpPanel must be added to the front layer before the hotkey labels
+  // (added inside initializeLabels) so the labels draw on top of the panel
+  // background instead of being occluded by it.
+  initializeHelpPanel();
   initializeLabels();
   initializePotentialEnergyPlot();
-  initializeHelpPanel();
 
   // initial time step override, e.g. from the desktop launcher UI
   if (const char *timeStepEnv = std::getenv("HAPTIC_DEVICE_TIME_STEP")) {
@@ -847,6 +884,38 @@ bool setLiveTimeStep(double seconds) {
   return true;
 }
 
+bool setLiveSettlingError(double value) {
+  if (!std::isfinite(value) || value < MIN_SETTLING_ERROR || value > MAX_SETTLING_ERROR) {
+    return false;
+  }
+  settlingError.store(value);
+  return true;
+}
+
+bool setLiveKReturn(double value) {
+  if (!std::isfinite(value) || value < MIN_K_RETURN || value > MAX_K_RETURN) {
+    return false;
+  }
+  kReturn.store(value);
+  return true;
+}
+
+bool setLiveKDampen(double value) {
+  if (!std::isfinite(value) || value < MIN_K_DAMPEN || value > MAX_K_DAMPEN) {
+    return false;
+  }
+  kDampen.store(value);
+  return true;
+}
+
+bool setLiveReturnDelay(double value) {
+  if (!std::isfinite(value) || value < MIN_RETURN_DELAY_SECONDS || value > MAX_RETURN_DELAY_SECONDS) {
+    return false;
+  }
+  returnDelaySeconds.store(value);
+  return true;
+}
+
 void initializeLabels() {
   addLabel(hapticPositionLabel); // label to read haptic device
   addLabel(labelRates); // create a label to display the haptic and graphic rate of the simulation
@@ -897,6 +966,12 @@ void initializeHotkeyLabels() {
   addHotkeyLabel("s", "screenshot atoms");
   addHotkeyLabel("c", "save configuration to .con");
   addHotkeyLabel("SPACE", "freeze atoms");
+  addHotkeyLabel("1", "toggle atom rendering");
+  addHotkeyLabel("2", "toggle force vector rendering");
+  addHotkeyLabel("3", "toggle bond rendering");
+  addHotkeyLabel("I, K", "move current atom up/down");
+  addHotkeyLabel("J, L", "move current atom left/right");
+  addHotkeyLabel("O, P", "move current atom forward/back");
   addHotkeyLabel("CTRL", "toggle help panel");
 }
 
@@ -1068,11 +1143,79 @@ void updateLabels() {
   writeConLabel->setLocalPos(5, height - 40);
   updateCounters(writeConLabel, writeConCounter);
 
+  // Position the help panel, its header, and its hotkey rows relative to the
+  // top of the window (rather than a fixed offset from a hypothetical taller
+  // window). Row spacing shrinks if needed so every hotkey stays on-screen
+  // instead of being pushed below y=0 and disappearing on shorter windows.
+  const double topMargin = 10.0;
+  const double headerReserve = 60.0;
+  const double maxHelpPanelHeight = 500.0;
+  const double defaultRowSpacing = 25.0;
+
+  int numHotkeyRows = static_cast<int>(hotkeyKeys.size());
+  double rowSpacing = defaultRowSpacing;
+  if (numHotkeyRows > 1) {
+    double availableRowSpace = height - topMargin - headerReserve;
+    double neededRowSpace = defaultRowSpacing * (numHotkeyRows - 1);
+    if (availableRowSpace > 0 && availableRowSpace < neededRowSpace) {
+      rowSpacing = availableRowSpace / (numHotkeyRows - 1);
+    }
+  }
+
+  double helpPanelHeight = cMin(maxHelpPanelHeight, cMax(0.0, (double)height - topMargin));
+  helpPanel->setSize(520, helpPanelHeight);
+  helpPanel->setLocalPos(width - 550, height - topMargin - helpPanelHeight);
+  helpHeader->setLocalPos(width - 490, height - topMargin - headerReserve + 20);
+
   for (int i = 0; i < hotkeyKeys.size(); i++) {
     cLabel *tempKeyLabel = hotkeyKeys[i];
     cLabel *tempFuncLabel = hotkeyFunctions[i];
-    tempKeyLabel->setLocalPos(width - 540, height - 130 - i * 25);
-    tempFuncLabel->setLocalPos(width - 350, height - 130 - i * 25);
+    double rowY = height - topMargin - headerReserve - i * rowSpacing;
+    tempKeyLabel->setLocalPos(width - 540, rowY);
+    tempFuncLabel->setLocalPos(width - 350, rowY);
+  }
+}
+
+// Recomputes which atom pairs are within BOND_DISTANCE_THRESHOLD of each
+// other and shows/hides/creates the cShapeLine connecting each bonded pair.
+// Must be called with sceneMutex held.
+void updateBonds(void) {
+  if (!renderBonds.load()) {
+    for (auto &entry : bondLines) {
+      entry.second->setShowEnabled(false);
+    }
+    return;
+  }
+
+  set<pair<int, int>> bondedPairs;
+  int numAtoms = static_cast<int>(spheres.size());
+  for (int i = 0; i < numAtoms; i++) {
+    for (int j = i + 1; j < numAtoms; j++) {
+      double distance = cDistance(spheres[i]->getLocalPos(), spheres[j]->getLocalPos());
+      if (distance < BOND_DISTANCE_THRESHOLD) {
+        bondedPairs.insert(make_pair(i, j));
+      }
+    }
+  }
+
+  for (const pair<int, int> &bondedPair : bondedPairs) {
+    cShapeLine *&line = bondLines[bondedPair];
+    if (!line) {
+      line = new cShapeLine(cVector3d(0, 0, 0), cVector3d(0, 0, 0));
+      line->setLineWidth(3);
+      line->m_colorPointA.setGrayDim();
+      line->m_colorPointB.setGrayDim();
+      world->addChild(line);
+    }
+    line->m_pointA = spheres[bondedPair.first]->getLocalPos();
+    line->m_pointB = spheres[bondedPair.second]->getLocalPos();
+    line->setShowEnabled(true);
+  }
+
+  for (auto &entry : bondLines) {
+    if (bondedPairs.find(entry.first) == bondedPairs.end()) {
+      entry.second->setShowEnabled(false);
+    }
   }
 }
 
@@ -1081,9 +1224,17 @@ void updateGraphics(void) {
 
   // UPDATE WIDGETS
   updateLabels();
-  helpPanel->setLocalPos(width - 550, height - 530);
-  helpHeader->setLocalPos(width - 490, height - 70);
-  
+
+  // apply debug rendering toggles for atoms and force vectors, and recompute
+  // bond lines for the current atom positions
+  bool showAtoms = renderAtoms.load();
+  bool showForceVectors = renderForceVectors.load();
+  for (int i = 0; i < spheres.size(); i++) {
+    spheres[i]->setShowEnabled(showAtoms);
+    spheres[i]->getVelVector()->setShowEnabled(showForceVectors);
+  }
+  updateBonds();
+
   const double potentialEnergy = displayedPotentialEnergy.load();
   LJ_num->setText("Potential Energy: " + cStr(potentialEnergy, 5));
   LJ_num->setLocalPos(0, 15, 0);
@@ -1138,6 +1289,9 @@ void switchCamera() {
 
 void switchCurrentAtom() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  if (spheres.empty()) {
+    return;
+  }
   Atom* current = spheres[currentIndex];
   int prev_curr_atom = currentIndex;
   currentIndex = remainder(currentIndex + 1, spheres.size());
@@ -1266,12 +1420,15 @@ cVector3d standbyModeUpdate(Atom *current, cVector3d position, const double time
   
   cVector3d dPHaptic = position - prevHapticPosition;
   prevHapticPosition = position;
-  
-  const double K_RETURN = 25; // spring constant for return haptic controller to center
+
+  // spring constant for return haptic controller to center, live-tunable via
+  // the IPC "set k_return" command / launcher UI
+  const double K_RETURN = kReturn.load();
   const double K_HAPTIC = 1; // spring constant for applying vector projection
 
-  // position err acceptable for return mechanism to return to center
-  const double SETTLING_ERR = .05; 
+  // position err acceptable for return mechanism to return to center,
+  // live-tunable via the IPC "set settling_err" command / launcher UI
+  const double SETTLING_ERR = settlingError.load();
 
   const double STANDBY_ERR = .1; // movement err acceptable for standby mode to activate
   const double HAPTIC_RADIUS = .08; // "escape" radius to get out of simulating mode
@@ -1299,17 +1456,23 @@ cVector3d standbyModeUpdate(Atom *current, cVector3d position, const double time
           cout << "Not yet settled!" << endl;
         }
         confirming = false;
-        if (positionClock.getCurrentTimeSeconds() >= 2.5 || resetting) {
+        // delay (seconds) after entering standby before the return mechanism
+        // kicks in, live-tunable via the IPC "set return_delay" command / launcher UI
+        if (positionClock.getCurrentTimeSeconds() >= returnDelaySeconds.load() || resetting) {
           positionClock.stop();
           positionClock.reset();
           if (!resetting) {
             cout << "Resetting to center..." << endl;
           }
           resetting = true;
-          
+
           const double MAX_FORCE = 1.6; // maximum force the return mechanism should output
-          
-          cVector3d returnVector = -position * K_RETURN;
+
+          // velocity-based damping on the return spring, live-tunable via the
+          // IPC "set k_dampen" command / launcher UI; defaults to 0 (no
+          // damping) so existing return behavior is unchanged until set
+          cVector3d hapticVelocity = dPHaptic / timeInterval;
+          cVector3d returnVector = -position * K_RETURN - hapticVelocity * kDampen.load();
           return clampVectorMagnitude(returnVector, MAX_FORCE);
         }
       } else {
@@ -1350,12 +1513,27 @@ cVector3d standbyModeUpdate(Atom *current, cVector3d position, const double time
 
 cVector3d positionModeUpdate(Atom *current, cVector3d position, const double timeInterval) {
   const double VELOCITY_MULT = 25;
-  const double ATTRACTION_MAX = 1.5; 
+  const double ATTRACTION_MAX = 1.5;
   cVector3d currentPos = current->getLocalPos();
   cVector3d attraction = (position - currentPos) * timeInterval * VELOCITY_MULT;
   current->setLocalPos(currentPos + clampVectorMagnitude(attraction, ATTRACTION_MAX * timeInterval));
   prevPositions[currentIndex] = currentPos;
   return cVector3d(0,0,0);
+}
+
+void moveCurrentAtom(double rightAmount, double upAmount, double forwardAmount) {
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  if (spheres.empty()) {
+    return;
+  }
+  Atom *current = spheres[currentIndex];
+  cVector3d delta = ATOM_MOVE_STEP * (rightAmount * camera->getRightVector() +
+                                      upAmount * camera->getUpVector() +
+                                      forwardAmount * camera->getLookVector());
+  current->setLocalPos(current->getLocalPos() + delta);
+  if (currentIndex < prevPositions.size()) {
+    prevPositions[currentIndex] = current->getLocalPos();
+  }
 }
 
 

@@ -12,7 +12,9 @@ from PySide6.QtNetwork import QAbstractSocket, QTcpSocket
 
 
 def parse_status(line: str) -> dict:
-    """Parses 'OK STATUS mode=x freeze=y potential=z atoms=n anchored=m energy=e'."""
+    """Parses 'OK STATUS mode=x freeze=y potential=z atoms=n anchored=m energy=e
+    timestep=t render_atoms=b render_forces=b render_bonds=b settling_err=e
+    k_return=k k_dampen=k return_delay=t'."""
     fields = {}
     for token in line.split()[2:]:
         if "=" in token:

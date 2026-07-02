@@ -62,6 +62,24 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
     screenshotCounter = 5000;
   } else if (a_key == GLFW_KEY_SPACE) {  // freeze simulation
     freezeAtoms = !freezeAtoms;
+  } else if (a_key == GLFW_KEY_1 && a_action == GLFW_PRESS) {  // toggle atom rendering
+    renderAtoms = !renderAtoms;
+  } else if (a_key == GLFW_KEY_2 && a_action == GLFW_PRESS) {  // toggle force vector rendering
+    renderForceVectors = !renderForceVectors;
+  } else if (a_key == GLFW_KEY_3 && a_action == GLFW_PRESS) {  // toggle bond rendering
+    renderBonds = !renderBonds;
+  } else if (a_key == GLFW_KEY_I) {  // move current atom up
+    moveCurrentAtom(0, 1, 0);
+  } else if (a_key == GLFW_KEY_K) {  // move current atom down
+    moveCurrentAtom(0, -1, 0);
+  } else if (a_key == GLFW_KEY_J) {  // move current atom left
+    moveCurrentAtom(-1, 0, 0);
+  } else if (a_key == GLFW_KEY_L) {  // move current atom right
+    moveCurrentAtom(1, 0, 0);
+  } else if (a_key == GLFW_KEY_O) {  // move current atom forward (away from camera)
+    moveCurrentAtom(0, 0, 1);
+  } else if (a_key == GLFW_KEY_P) {  // move current atom backward (toward camera)
+    moveCurrentAtom(0, 0, -1);
   } else if (a_key == GLFW_KEY_C) {  // save atoms to con file
     std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     ofstream writeFile;

@@ -75,6 +75,13 @@ extern cScope *scope;
 
 extern std::atomic<bool> freezeAtoms;
 
+// debug rendering toggles: control whether atoms, force vectors, and bonds
+// are drawn each frame. Changeable at runtime via hotkeys 1/2/3 or the IPC
+// "set render_atoms/render_forces/render_bonds" commands.
+extern std::atomic<bool> renderAtoms;
+extern std::atomic<bool> renderForceVectors;
+extern std::atomic<bool> renderBonds;
+
 extern cLabel *camera_pos;
 
 extern cLabel *helpHeader;
@@ -109,9 +116,38 @@ constexpr double MAX_SIMULATION_TIME_STEP = 0.005;
 // [MIN_SIMULATION_TIME_STEP, MAX_SIMULATION_TIME_STEP]
 bool setLiveTimeStep(double seconds);
 
+// standby/return-to-center haptic tuning parameters, used by standbyModeUpdate
+// in LJ.cpp and changeable at runtime via the IPC
+// "set settling_err/k_return/k_dampen/return_delay" commands
+extern std::atomic<double> settlingError;
+extern std::atomic<double> kReturn;
+extern std::atomic<double> kDampen;
+extern std::atomic<double> returnDelaySeconds;
+
+// bounds accepted for the above, enforced by their setLiveXxx validators
+constexpr double MIN_SETTLING_ERROR = 0.001;
+constexpr double MAX_SETTLING_ERROR = 1.0;
+constexpr double MIN_K_RETURN = 0.0;
+constexpr double MAX_K_RETURN = 500.0;
+constexpr double MIN_K_DAMPEN = 0.0;
+constexpr double MAX_K_DAMPEN = 50.0;
+constexpr double MIN_RETURN_DELAY_SECONDS = 0.0;
+constexpr double MAX_RETURN_DELAY_SECONDS = 30.0;
+
+// validated setters for the standby/return tuning parameters, same
+// fail-closed contract as setLiveTimeStep
+bool setLiveSettlingError(double value);
+bool setLiveKReturn(double value);
+bool setLiveKDampen(double value);
+bool setLiveReturnDelay(double value);
+
 // advance to the next non-anchored atom / next preset camera angle
 void switchCurrentAtom();
 void switchCamera();
+
+// nudge the current (controlled) atom one keyboard step along the camera's
+// right/up/look axes; each argument is -1, 0, or 1
+void moveCurrentAtom(double rightAmount, double upAmount, double forwardAmount);
 
 // swap the live calculator between "lj" and "morse"; returns false (and leaves
 // the current calculator untouched) for any other request, since ASE

@@ -88,7 +88,14 @@ string buildStatus() {
       << " atoms=" << atomCount
       << " anchored=" << anchored
       << " energy=" << displayedPotentialEnergy.load()
-      << " timestep=" << simulationTimeStep.load();
+      << " timestep=" << simulationTimeStep.load()
+      << " render_atoms=" << (renderAtoms.load() ? "true" : "false")
+      << " render_forces=" << (renderForceVectors.load() ? "true" : "false")
+      << " render_bonds=" << (renderBonds.load() ? "true" : "false")
+      << " settling_err=" << settlingError.load()
+      << " k_return=" << kReturn.load()
+      << " k_dampen=" << kDampen.load()
+      << " return_delay=" << returnDelaySeconds.load();
   return out.str();
 }
 
@@ -144,6 +151,72 @@ string handleCommand(const string &line) {
         }
       } catch (const exception &) {
         return "ERR timestep must be a valid number";
+      }
+      return "OK";
+    } else if (key == "render_atoms") {
+      if (value != "true" && value != "false") {
+        return "ERR render_atoms must be true or false";
+      }
+      renderAtoms.store(value == "true");
+      return "OK";
+    } else if (key == "render_forces") {
+      if (value != "true" && value != "false") {
+        return "ERR render_forces must be true or false";
+      }
+      renderForceVectors.store(value == "true");
+      return "OK";
+    } else if (key == "render_bonds") {
+      if (value != "true" && value != "false") {
+        return "ERR render_bonds must be true or false";
+      }
+      renderBonds.store(value == "true");
+      return "OK";
+    } else if (key == "settling_err") {
+      try {
+        size_t consumed = 0;
+        double parsed = stod(value, &consumed);
+        if (consumed != value.size() || !setLiveSettlingError(parsed)) {
+          return "ERR settling_err must be a number between " +
+                 to_string(MIN_SETTLING_ERROR) + " and " + to_string(MAX_SETTLING_ERROR);
+        }
+      } catch (const exception &) {
+        return "ERR settling_err must be a valid number";
+      }
+      return "OK";
+    } else if (key == "k_return") {
+      try {
+        size_t consumed = 0;
+        double parsed = stod(value, &consumed);
+        if (consumed != value.size() || !setLiveKReturn(parsed)) {
+          return "ERR k_return must be a number between " +
+                 to_string(MIN_K_RETURN) + " and " + to_string(MAX_K_RETURN);
+        }
+      } catch (const exception &) {
+        return "ERR k_return must be a valid number";
+      }
+      return "OK";
+    } else if (key == "k_dampen") {
+      try {
+        size_t consumed = 0;
+        double parsed = stod(value, &consumed);
+        if (consumed != value.size() || !setLiveKDampen(parsed)) {
+          return "ERR k_dampen must be a number between " +
+                 to_string(MIN_K_DAMPEN) + " and " + to_string(MAX_K_DAMPEN);
+        }
+      } catch (const exception &) {
+        return "ERR k_dampen must be a valid number";
+      }
+      return "OK";
+    } else if (key == "return_delay") {
+      try {
+        size_t consumed = 0;
+        double parsed = stod(value, &consumed);
+        if (consumed != value.size() || !setLiveReturnDelay(parsed)) {
+          return "ERR return_delay must be a number between " +
+                 to_string(MIN_RETURN_DELAY_SECONDS) + " and " + to_string(MAX_RETURN_DELAY_SECONDS);
+        }
+      } catch (const exception &) {
+        return "ERR return_delay must be a valid number";
       }
       return "OK";
     }

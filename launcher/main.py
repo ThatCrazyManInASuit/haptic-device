@@ -99,12 +99,22 @@ MIN_TIME_STEP_S = 0.0001
 MAX_TIME_STEP_S = 0.005
 TIME_STEP_SLIDER_SCALE = 10000  # slider is integer ticks of 1e-4 s
 
+# must match the MIN_/MAX_ bounds for these in globals.h
+MIN_SETTLING_ERROR = 0.001
+MAX_SETTLING_ERROR = 1.0
+MIN_K_RETURN = 0.0
+MAX_K_RETURN = 500.0
+MIN_K_DAMPEN = 0.0
+MAX_K_DAMPEN = 50.0
+MIN_RETURN_DELAY_S = 0.0
+MAX_RETURN_DELAY_S = 30.0
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Haptic Device Launcher")
-        self.resize(760, 520)
+        self.resize(780, 900)
 
         self.process = QProcess(self)
         self.process.readyReadStandardOutput.connect(self._on_stdout)
@@ -142,6 +152,8 @@ class MainWindow(QMainWindow):
         root.addWidget(self._build_launch_group())
         root.addWidget(self._build_log_group())
         root.addWidget(self._build_live_group())
+        root.addWidget(self._build_debug_group())
+        root.addWidget(self._build_haptic_tuning_group())
 
         # Wrapping in a scroll area means the window can start smaller than
         # its content (e.g. so it fits above a dock/taskbar) without ever
@@ -319,6 +331,80 @@ class MainWindow(QMainWindow):
 
         return group
 
+    def _build_debug_group(self) -> QGroupBox:
+        group = QGroupBox("Debug rendering")
+        self.debug_group = group
+        layout = QHBoxLayout(group)
+
+        self.render_atoms_checkbox = QCheckBox("Atoms")
+        self.render_atoms_checkbox.setChecked(True)
+        self.render_atoms_checkbox.toggled.connect(
+            lambda checked: self.ipc.send(f"set render_atoms {'true' if checked else 'false'}")
+        )
+        layout.addWidget(self.render_atoms_checkbox)
+
+        self.render_forces_checkbox = QCheckBox("Force vectors")
+        self.render_forces_checkbox.setChecked(True)
+        self.render_forces_checkbox.toggled.connect(
+            lambda checked: self.ipc.send(f"set render_forces {'true' if checked else 'false'}")
+        )
+        layout.addWidget(self.render_forces_checkbox)
+
+        self.render_bonds_checkbox = QCheckBox("Bonds")
+        self.render_bonds_checkbox.setChecked(True)
+        self.render_bonds_checkbox.toggled.connect(
+            lambda checked: self.ipc.send(f"set render_bonds {'true' if checked else 'false'}")
+        )
+        layout.addWidget(self.render_bonds_checkbox)
+
+        return group
+
+    def _build_haptic_tuning_group(self) -> QGroupBox:
+        group = QGroupBox("Haptic return tuning")
+        self.haptic_tuning_group = group
+        form = QFormLayout(group)
+
+        self.settling_err_spin = QDoubleSpinBox()
+        self.settling_err_spin.setDecimals(4)
+        self.settling_err_spin.setRange(MIN_SETTLING_ERROR, MAX_SETTLING_ERROR)
+        self.settling_err_spin.setSingleStep(0.001)
+        self.settling_err_spin.setValue(0.05)
+        form.addRow("Settling error:", self.settling_err_spin)
+
+        self.k_return_spin = QDoubleSpinBox()
+        self.k_return_spin.setDecimals(2)
+        self.k_return_spin.setRange(MIN_K_RETURN, MAX_K_RETURN)
+        self.k_return_spin.setSingleStep(1.0)
+        self.k_return_spin.setValue(25.0)
+        form.addRow("K return:", self.k_return_spin)
+
+        self.k_dampen_spin = QDoubleSpinBox()
+        self.k_dampen_spin.setDecimals(2)
+        self.k_dampen_spin.setRange(MIN_K_DAMPEN, MAX_K_DAMPEN)
+        self.k_dampen_spin.setSingleStep(0.5)
+        self.k_dampen_spin.setValue(0.0)
+        form.addRow("K dampen:", self.k_dampen_spin)
+
+        self.return_delay_spin = QDoubleSpinBox()
+        self.return_delay_spin.setDecimals(2)
+        self.return_delay_spin.setRange(MIN_RETURN_DELAY_S, MAX_RETURN_DELAY_S)
+        self.return_delay_spin.setSingleStep(0.1)
+        self.return_delay_spin.setValue(2.5)
+        self.return_delay_spin.setSuffix(" s")
+        form.addRow("Return delay:", self.return_delay_spin)
+
+        apply_button = QPushButton("Apply")
+        apply_button.clicked.connect(self._apply_haptic_tuning)
+        form.addRow("", apply_button)
+
+        return group
+
+    def _apply_haptic_tuning(self):
+        self.ipc.send(f"set settling_err {self.settling_err_spin.value():.4f}")
+        self.ipc.send(f"set k_return {self.k_return_spin.value():.2f}")
+        self.ipc.send(f"set k_dampen {self.k_dampen_spin.value():.2f}")
+        self.ipc.send(f"set return_delay {self.return_delay_spin.value():.2f}")
+
     def _update_atom_source_enabled(self):
         use_count = self.atom_count_radio.isChecked()
         self.atom_count_spin.setEnabled(use_count)
@@ -418,6 +504,8 @@ class MainWindow(QMainWindow):
         self.launch_button.setEnabled(not running)
         self.stop_button.setEnabled(running)
         self.live_group.setEnabled(False)  # live controls need an active IPC connection too
+        self.debug_group.setEnabled(False)
+        self.haptic_tuning_group.setEnabled(False)
         if not running:
             self.status_label.setText("Not connected.")
 
@@ -461,6 +549,8 @@ class MainWindow(QMainWindow):
     def _on_ipc_connected(self):
         self._connect_timer.stop()
         self.live_group.setEnabled(True)
+        self.debug_group.setEnabled(True)
+        self.haptic_tuning_group.setEnabled(True)
         self.status_label.setText("Connected.")
         self._status_timer.start()
         self.ipc.send("status")
@@ -468,6 +558,8 @@ class MainWindow(QMainWindow):
     def _on_ipc_disconnected(self):
         self._status_timer.stop()
         self.live_group.setEnabled(False)
+        self.debug_group.setEnabled(False)
+        self.haptic_tuning_group.setEnabled(False)
         self.status_label.setText("Live control disconnected.")
 
     def _on_status(self, fields: dict):
@@ -478,6 +570,16 @@ class MainWindow(QMainWindow):
         self.freeze_checkbox.blockSignals(True)
         self.freeze_checkbox.setChecked(fields.get("freeze") == "true")
         self.freeze_checkbox.blockSignals(False)
+
+        for checkbox, key in (
+            (self.render_atoms_checkbox, "render_atoms"),
+            (self.render_forces_checkbox, "render_forces"),
+            (self.render_bonds_checkbox, "render_bonds"),
+        ):
+            if key in fields:
+                checkbox.blockSignals(True)
+                checkbox.setChecked(fields[key] == "true")
+                checkbox.blockSignals(False)
 
         # don't fight the user while they're actively dragging the slider
         if "timestep" in fields and not self.time_step_slider.isSliderDown():
@@ -490,6 +592,22 @@ class MainWindow(QMainWindow):
             self.time_step_slider.setValue(ticks)
             self.time_step_slider.blockSignals(False)
             self.time_step_value_label.setText(f"{seconds:.4f} s")
+
+        # don't fight the user while they're actively editing one of these
+        for spin, key in (
+            (self.settling_err_spin, "settling_err"),
+            (self.k_return_spin, "k_return"),
+            (self.k_dampen_spin, "k_dampen"),
+            (self.return_delay_spin, "return_delay"),
+        ):
+            if key in fields and not spin.hasFocus():
+                try:
+                    value = float(fields[key])
+                except ValueError:
+                    continue
+                spin.blockSignals(True)
+                spin.setValue(value)
+                spin.blockSignals(False)
 
     def _on_command_failed(self, command: str, message: str):
         self.log_view.appendPlainText(f"[live control] '{command}' -> {message}")
