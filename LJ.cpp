@@ -303,9 +303,6 @@ cVector3d selectedAtomOffset;
 // position of mouse click.
 cVector3d selectedPoint;
 
-// save coordinates of central atom
-double centerCoords[3] = {50.0, 50.0, 50.0}; 
-
 // swap interval for the display context (vertical synchronization)
 
 int swapInterval = 1;
@@ -1392,7 +1389,8 @@ void updateBonds(void) {
   for (auto &entry : bondLines) {
     if (bondedPairs.find(entry.first) == bondedPairs.end()) {
       entry.second->setShowEnabled(false);
-  
+    }
+  }
 }
 
 void updateGraphics(void) {
@@ -1632,13 +1630,13 @@ std::optional<cVector3d> updateStandbyModeSimulating(Atom *current, cVector3d& p
 }
 
 std::optional<cVector3d> updateStandbyState(Atom *current, const cVector3d& position,
-                                          const cVector3d& dPHaptic) {
+                                          const cVector3d& dPHaptic, double timeInterval) {
   // position err acceptable for return mechanism to return to center,
   // live-tunable via the IPC "set settling_err" command / launcher UI
-  constexpr double SETTLING_ERR = settlingError.load();
+  double SETTLING_ERR = settlingError.load();
   // spring constant for return haptic controller to center, live-tunable via
   // the IPC "set k_return" command / launcher UI
-  constexpr double K_RETURN = kReturn.load();
+  double K_RETURN = kReturn.load();
   constexpr double K_DAMPING = 8.0;
   constexpr double RETURN_DELAY_SECONDS = 5.0;
 
@@ -1719,7 +1717,7 @@ cVector3d standbyModeUpdate(Atom *current, cVector3d position, const double time
       cout << "Entering standby mode..." << endl;
     }
     if (standby) {
-      auto pos = updateStandbyState(current, position, dPHaptic);
+      auto pos = updateStandbyState(current, position, dPHaptic, timeInterval);
       if (pos) return *pos;
     }
 
