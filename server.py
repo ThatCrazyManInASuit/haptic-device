@@ -6,11 +6,10 @@ import pickle
 import struct
 import time
 
-#predictor = pretrained_mlip.get_predict_unit(
-#    "uma-s-1p2",
-#    device="cuda",
-#    inference_settings="turbo"
-#)
+predictor = pretrained_mlip.get_predict_unit(
+   "uma-s-1p2",
+   inference_settings="turbo"
+)
 
 print("Ready to accept instructions", flush=True)
 
@@ -18,14 +17,13 @@ length = struct.unpack("!I", sys.stdin.buffer.read(4))[0]
 kwargs = pickle.loads(sys.stdin.buffer.read(length))
 num_atoms = len(kwargs["numbers"])
 atoms = Atoms(**kwargs)
-atoms.calc = LennardJones()
-# atoms.calc = FAIRChemCalculator(predictor, "uma")
+atoms.calc = FAIRChemCalculator(predictor, "oc20")
 
 while True:
     data = sys.stdin.buffer.read(np.dtype(np.float64).itemsize * num_atoms * 3)
-    start = time.perf_counter()
+    # start = time.perf_counter()
     atoms.set_positions(np.frombuffer(data, dtype=np.float64).reshape((num_atoms, 3)))
     sys.stdout.buffer.write(atoms.get_forces().tobytes())
-    print((time.perf_counter() - start) * 1000, file=sys.stderr)
+    # print((time.perf_counter() - start) * 1000, file=sys.stderr)
     sys.stdout.buffer.write(struct.pack("d", atoms.get_potential_energy()))
     sys.stdout.flush()

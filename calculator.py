@@ -24,9 +24,9 @@ class Atoms:
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         self.ssh.connect(hostname="fri.cm.utexas.edu", username=USERNAME)
         sftp = self.ssh.open_sftp()
-        sftp.put("haptic-device/server.py", "/tmp/server.py")
+        sftp.put("haptic-device/server.py", f"/home/{USERNAME}/.cache/server.py")
         sftp.close()
-        self.stdin, self.stdout, self.stderr = self.ssh.exec_command(f"{REMOTE_PYTHON} -u /tmp/server.py", get_pty=False)
+        self.stdin, self.stdout, self.stderr = self.ssh.exec_command(f"{REMOTE_PYTHON} -u /home/{USERNAME}/.cache/server.py", get_pty=False)
         print("Waiting for server to be ready...")
         while True:
             line = self.stdout.readline()
@@ -44,12 +44,11 @@ class Atoms:
         self.stdin.flush()
 
     def get_forces(self):
-        start = time.perf_counter()
-        data = self.stdout.read(np.dtype(np.float64).itemsize * self.num_atoms * 3)
-        print("Latency on server side", self.stderr.readline(), end="")
-        print(f"Latency on client side: {(time.perf_counter() - start) * 1000}")
-        # print(f"Forces", self.stderr.readline(), end="")
-        return np.frombuffer(data, dtype=np.float64).reshape((self.num_atoms, 3))
+        # start = time.perf_counter()
+        data = self.stdout.read(np.dtype(np.float32).itemsize * self.num_atoms * 3)
+        # print("Latency on server side", self.stderr.readline(), end="")
+        # print(f"Latency on client side: {(time.perf_counter() - start) * 1000}")
+        return np.frombuffer(data, dtype=np.float32).reshape((self.num_atoms, 3))
 
     def get_potential_energy(self):
         return struct.unpack("d", self.stdout.read(8))[0]

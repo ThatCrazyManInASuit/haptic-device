@@ -328,13 +328,9 @@ namespace
             className = "EMT";
             kwargsText.clear();
         } else if (spec.rfind("uma", 0) == 0) {
-<<<<<<< HEAD
             // UMA is Meta's universal ML potential. Its constructor takes the full
             // spec string directly, so we pass it through as kwargs.
-            moduleName = "uma_wrapper";
-=======
             moduleName = "calculator";
->>>>>>> b43a4ac (feat: Remove unnecessary uma_wrapper)
             className = "create_calculator";
             kwargsText = spec;
         } else {
