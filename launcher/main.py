@@ -1,9 +1,10 @@
 """Desktop launcher for the haptic-device CHAI3D simulation.
 
 Lets you pick launch parameters (haptic mode, atom count/structure file,
-potential energy surface, PBC), start/stop the compiled haptic-device binary,
-and tweak a handful of parameters live while it runs via the loopback IPC
-command server built into LJ.cpp (see ipcServer.cpp/.h).
+potential energy surface, PBC, starting atom spread), start/stop the
+compiled haptic-device binary, and tweak a handful of parameters live while
+it runs via the loopback IPC command server built into LJ.cpp (see
+ipcServer.cpp/.h).
 
 Run with:  python -m launcher.main
 """
@@ -191,6 +192,14 @@ class MainWindow(QMainWindow):
         self.atom_count_spin.setRange(1, 500)
         self.atom_count_spin.setValue(5)
         form.addRow("  Number of atoms:", self.atom_count_spin)
+
+        self.spawn_radius_spin = QDoubleSpinBox()
+        self.spawn_radius_spin.setDecimals(2)
+        self.spawn_radius_spin.setRange(0.5, 50.0)
+        self.spawn_radius_spin.setSingleStep(0.5)
+        self.spawn_radius_spin.setValue(5.0)
+        self.spawn_radius_spin.setSuffix(" Å")
+        form.addRow("  Starting spread:", self.spawn_radius_spin)
 
         file_row = QHBoxLayout()
         self.structure_file_edit = QLineEdit()
@@ -408,6 +417,7 @@ class MainWindow(QMainWindow):
     def _update_atom_source_enabled(self):
         use_count = self.atom_count_radio.isChecked()
         self.atom_count_spin.setEnabled(use_count)
+        self.spawn_radius_spin.setEnabled(use_count)
         self.structure_file_edit.setEnabled(not use_count)
 
     def _update_ase_enabled(self, potential: str):
@@ -441,9 +451,10 @@ class MainWindow(QMainWindow):
     # Launching / stopping the simulation process
     # ------------------------------------------------------------------
     def _build_arguments(self) -> list[str]:
-        # positions mirror LJ.cpp's argv[1..5]: mode, atoms/file, potential,
-        # ASE spec, PBC mode. Always passing all five keeps this in lock-step
-        # with the C++ side instead of relying on conditional placeholders.
+        # positions mirror LJ.cpp's argv[1..6]: mode, atoms/file, potential,
+        # ASE spec, PBC mode, atom spawn radius (Angstroms). Always passing
+        # all six keeps this in lock-step with the C++ side instead of
+        # relying on conditional placeholders.
         args = [self.mode_combo.currentText()]
 
         if self.structure_file_radio.isChecked():
@@ -455,6 +466,7 @@ class MainWindow(QMainWindow):
         args.append(potential)
         args.append(self.ase_spec_combo.currentText().strip())
         args.append(self.pbc_combo.currentData())
+        args.append(f"{self.spawn_radius_spin.value():.2f}")
 
         return args
 

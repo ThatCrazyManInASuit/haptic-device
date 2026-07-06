@@ -122,6 +122,11 @@ const double MAX_ATOM_STEP = 0.01;
 // Scales the distance betweens atoms
 const double DIST_SCALE = .02;
 
+// default radius (Angstroms) that randomly-placed atoms spawn within when
+// launched with an atom count instead of a structure file; overridable via
+// argv[6] (see placeAtoms)
+const double DEFAULT_ATOM_SPAWN_RADIUS_ANGSTROMS = 5.0;
+
 // atom pairs whose centers are closer than this (world units) are considered
 // bonded and get a connecting line drawn between them when bond rendering is on
 const double BOND_DISTANCE_THRESHOLD = SPHERE_RADIUS * 5.0;
@@ -340,7 +345,7 @@ void initializeHapticDevice();
 
 void placeAtoms(std::array<double, 9> aseCell, std::array<int, 3> &asePbc, int argc, char *argv[]);
 Atom* initializeAtom(cTexture2dPtr texture, int atomicNumber);
-void initializeAtomPosition(Atom *new_atom);
+void initializeAtomPosition(Atom *new_atom, double spawnRadiusWorldUnits);
 void initializeCalculator(int argc, char *argv[], std::array<double, 9> aseCell,
     std::array<int, 3> asePbc);
 void initializeLabels();
@@ -728,13 +733,25 @@ void placeAtoms(std::array<double, 9> aseCell, std::array<int, 3> &asePbc, int a
   if (argc == 2 || isNumber(argv[2])) {
     // set numSpheres to input; if none or negative, default is five
     int numSpheres = argc > 2 ? atoi(argv[2]) : 5;
+
+    // spawn radius (argv[6]), in Angstroms, that randomly-placed atoms are
+    // scattered within; falls back to the default if omitted or invalid
+    double spawnRadiusAngstroms = DEFAULT_ATOM_SPAWN_RADIUS_ANGSTROMS;
+    if (argc > 6) {
+      double parsed = atof(argv[6]);
+      if (parsed > 0.0) {
+        spawnRadiusAngstroms = parsed;
+      }
+    }
+    double spawnRadiusWorldUnits = spawnRadiusAngstroms * DIST_SCALE;
+
     for (int i = 0; i < numSpheres; i++) {
       // initialize atom with texture and atomic number of 1 (hydrogen)
-      Atom *new_atom = initializeAtom(texture, 1); 
+      Atom *new_atom = initializeAtom(texture, 1);
       if (i == 0) {
         new_atom->setCurrent(true); // set the first sphere to the current
       } else {
-        initializeAtomPosition(new_atom); // set the position of the atom
+        initializeAtomPosition(new_atom, spawnRadiusWorldUnits); // set the position of the atom
       }
     }
   } else { // read in specified file
@@ -791,17 +808,17 @@ Atom* initializeAtom(cTexture2dPtr texture, int atomicNumber) {
   return new_atom;
 }
 
-void initializeAtomPosition(Atom *new_atom) {
+void initializeAtomPosition(Atom *new_atom, double spawnRadiusWorldUnits) {
   bool inside_atom = true;
   auto iter{0};
   while (inside_atom) {
     if (iter <= 1000) {
       // Place atom at a random position
-      new_atom->setInitialPosition();
+      new_atom->setInitialPosition(spawnRadiusWorldUnits);
     } else {
       // If there are too many failed attempts at placing the atom increase the radius in
       // which it can spawn
-      new_atom->setInitialPosition(.115);
+      new_atom->setInitialPosition(spawnRadiusWorldUnits * 1.15);
     }
     // Check that it doesn't collide with any others
     bool collision_detected = false;
