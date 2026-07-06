@@ -639,6 +639,11 @@ void initializeGLFW() {
   stereoMode == C_STEREO_ACTIVE ? glfwWindowHint(GLFW_STEREO, GL_TRUE)
                                 : glfwWindowHint(GLFW_STEREO, GL_FALSE);
 
+  // Without this, switching to fullscreen and then clicking another window
+  // like the Python launcher causes GLFW to auto-iconify/minimize this
+  // window on focus loss, which is exactly the "simulation disappears" bug.
+  glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
+
   // compute desired size of window
   const GLFWvidmode *mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
 
