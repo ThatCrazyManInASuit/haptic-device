@@ -164,16 +164,17 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
       camera->setSphericalRadius(.35);
       rho = .35;
       updateCameraLabel(camera_pos, camera);
-  }else if((a_key == GLFW_KEY_LEFT_CONTROL || a_key == GLFW_KEY_RIGHT_CONTROL) &&
+  } else if((a_key == GLFW_KEY_LEFT_CONTROL || a_key == GLFW_KEY_RIGHT_CONTROL) &&
            a_action == GLFW_PRESS){
-      std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-      helpPanel->setShowPanel(!helpPanel->getShowPanel());
-      helpHeader->setShowEnabled(helpPanel->getShowPanel());
-      for(int i = 0; i < hotkeyKeys.size(); i++){
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+    
+    helpPanel->setShowPanel(!helpPanel->getShowPanel());
+    helpHeader->setShowEnabled(helpPanel->getShowPanel());
+    for(int i = 0; i < hotkeyKeys.size(); i++){
         hotkeyKeys[i]->setShowEnabled(helpPanel->getShowPanel());
         hotkeyFunctions[i]->setShowEnabled(helpPanel->getShowPanel());
-      }
-  }
+    }
+}
 }
 
 void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {

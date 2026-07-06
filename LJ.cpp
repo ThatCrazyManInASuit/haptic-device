@@ -959,7 +959,7 @@ void initializeLabels() {
   writeConLabel->setShowEnabled(false);
   screenshotLabel->setShowEnabled(false);
 
-  initializeHotkeyLabels();
+  //initializeHotkeyLabels();
 
   screenshotLabel->setText("Screenshot taken");
   writeConLabel->setText("Con file written");
@@ -1052,6 +1052,8 @@ void initializeHelpPanel() {
   helpPanel->setSize(520, 500);
   camera->m_frontLayer->addChild(helpPanel);
   helpPanel->setShowPanel(false);
+
+  initializeHotkeyLabels();
 
   cFontPtr headerFont = NEW_CFONT_CALIBRI_40();
   helpHeader = new cLabel(headerFont);
