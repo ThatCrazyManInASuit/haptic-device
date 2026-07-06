@@ -285,6 +285,27 @@ namespace
         return parsedKwargs;
     }
 
+    // Only works on Linux: reads /proc/self/exe to determine the executable's directory.
+    std::string getExecutableDir()
+    {
+        char buffer[4096];
+        ssize_t length = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+        if (length <= 0)
+        {
+            return "";
+        }
+
+        buffer[length] = '\0';
+        std::string executablePath(buffer);
+        size_t separator = executablePath.find_last_of('/');
+        if (separator == std::string::npos)
+        {
+            return "";
+        }
+
+        return executablePath.substr(0, separator);
+    }
+
     // Resolves a short spec string to the Python module, class, and kwargs needed
     // to construct an ASE calculator. Accepts built-in aliases for common potentials
     // or a generic "module:Class[:kwargs]" format for anything else.
@@ -337,12 +358,20 @@ namespace
         // Acquire the GIL, required whenever we call into the Python C API.
         PyGILState_STATE gilState = PyGILState_Ensure();
 
-        // CHANGE TO RELATIVE
-        std::string scriptDir = "/mnt/c/Users/sc73369/Documents/GitHub/chai3d/haptic-device/";
+        // Resolve the script directory relative to the executable, not the current
+        // working directory. This makes module loading reliable when the binary is
+        // launched from any folder.
+        std::filesystem::path scriptDir = getExecutableDir();
+        if (!scriptDir.empty()) {
+            scriptDir = scriptDir / ".." / ".." / "haptic-device";
+            scriptDir = std::filesystem::weakly_canonical(scriptDir);
+        } else {
+            scriptDir = std::filesystem::path("../haptic-device");
+        }
 
         // Append our script directory to sys.path so custom modules (e.g. uma_wrapper) are found.
         PyObject *sysPath = PySys_GetObject("path");
-        PyObject *pathStr = PyUnicode_FromString(scriptDir.c_str());
+        PyObject *pathStr = PyUnicode_FromString(scriptDir.string().c_str());
         PyList_Append(sysPath, pathStr);
         Py_DECREF(pathStr);
 
@@ -651,26 +680,7 @@ namespace
         return positions;
     }
 
-    // Only works on Linux: reads /proc/self/exe to determine the executable's directory.
-    std::string getExecutableDir()
-    {
-        char buffer[4096];
-        ssize_t length = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
-        if (length <= 0)
-        {
-            return "";
-        }
-
-        buffer[length] = '\0';
-        std::string executablePath(buffer);
-        size_t separator = executablePath.find_last_of('/');
-        if (separator == std::string::npos)
-        {
-            return "";
-        }
-
-        return executablePath.substr(0, separator);
-    }
+    
 
     // Single-quote escapes a string for safe use in a shell command.
     // An embedded single quote must be terminated, escaped, then reopened.
@@ -695,6 +705,8 @@ namespace
     std::vector<std::string> getAseFileIoCandidates() {
         std::vector<std::string> candidates;
         candidates.push_back("./haptic-device/ase_file_io.py");
+        candidates.push_back("../haptic-device/ase_file_io.py");
+        candidates.push_back("../../haptic-device/ase_file_io.py");
         return candidates;
     }
 

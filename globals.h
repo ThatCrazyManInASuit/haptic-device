@@ -31,13 +31,13 @@ extern Calculator* calculatorPtr;
 // vector holding hotkey key labels
 extern std::vector<chai3d::cLabel *> hotkeyKeys;
 
-//vector holding function key labels (must be separate for formatting)
+// vector holding function key labels (must be separate for formatting)
 extern std::vector<chai3d::cLabel *> hotkeyFunctions;
 
 // a camera to render the world in the window display
 extern chai3d::cCamera *camera;
 
-//for updating camera position
+// for updating camera position
 extern double rho;
 
 // sphere objects
@@ -61,7 +61,7 @@ extern int width;
 // current height of window
 extern int height;
 
-// offset between the position of the mmouse click on the object and the object
+// offset between the position of the mouse click on the object and the object
 // reference frame location.
 extern cVector3d selectedAtomOffset;
 
@@ -153,3 +153,17 @@ void moveCurrentAtom(double rightAmount, double upAmount, double forwardAmount);
 // the current calculator untouched) for any other request, since ASE
 // calculators need constructor arguments only available at launch time
 bool setLivePotential(const std::string &requested);
+// debug menu toggle
+extern bool showDebug;
+
+// debug labels 
+extern std::vector<chai3d::cLabel *> debugLabels;
+
+// atom index labels 
+extern std::vector<chai3d::cLabel *> debugAtomLabels;
+
+// initial positions for reset
+extern std::vector<chai3d::cVector3d> initialPositions;
+
+// current atom index
+extern int currentIndex;

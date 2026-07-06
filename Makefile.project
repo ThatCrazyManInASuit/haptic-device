@@ -1,0 +1,35 @@
+################################################################################
+# Project-specific build settings for haptic-device.
+#
+# CHAI3D's main Makefile auto-includes this file (see Makefile lines 64-66),
+# so everything here applies on every platform.
+################################################################################
+
+# --- GLFW (the window + keyboard/mouse library) ------------------------------
+# CHAI3D ships GLFW under extras/GLFW but does not link it automatically.
+# $(CFG)/$(OS)-$(ARCH)-$(COMPILER) auto-resolves per machine, e.g.
+#   release/mac-arm64-cc   on macOS (Apple Silicon)
+#   release/lin-x86_64-cc  on WSL/Linux
+GLFW      = $(TOP_DIR)/extras/GLFW
+GLFW_LIB  = $(GLFW)/lib/$(CFG)/$(OS)-$(ARCH)-$(COMPILER)/libglfw.a
+CXXFLAGS += -I$(GLFW)/include
+LDFLAGS  += -L$(GLFW)/lib/$(CFG)/$(OS)-$(ARCH)-$(COMPILER)
+LDLIBS   += -lglfw
+$(TARGET): $(GLFW_LIB)
+
+# --- Embedded Python (used by the ASE potentials) ----------------------------
+# python3-config finds the right Python version + paths on each machine on its
+# own. On macOS with Homebrew it may be python3.13-config; on WSL/Linux it is
+# often python3.11-config. The --embed flag is REQUIRED on Python 3.8+ or
+# -lpython3.x is dropped and linking fails.
+# Override the tool if you need a specific interpreter:
+#   make PYTHON_CONFIG=python3.11-config
+#   make PYTHON_CONFIG=python3.13-config
+#   make PYTHON_CONFIG=/usr/bin/python3.11-config
+PYTHON = $(TOP_DIR)/haptic-device/uma_env/bin/python
+
+# PYTHON_CONFIG ?= python3-config
+PYTHON_CONFIG=python3.11-config
+
+CXXFLAGS += $(shell $(PYTHON_CONFIG) --includes)
+LDLIBS   += $(shell $(PYTHON_CONFIG) --ldflags --embed)

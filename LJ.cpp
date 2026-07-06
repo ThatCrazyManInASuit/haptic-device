@@ -63,6 +63,8 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <optional>
+#include <unordered_map>
 
 #include <stdexcept>
 
@@ -92,6 +94,18 @@ cStereoMode stereoMode = C_STEREO_DISABLED;
 // Fullscreen mode
 bool fullscreen = false;
 
+// debug menu toggle
+bool showDebug = false;
+
+// debug labels vector
+vector<cLabel *> debugLabels;
+
+// atom index labels vector
+vector<cLabel *> debugAtomLabels;
+
+// initial positions for reset
+vector<cVector3d> initialPositions;
+
 //------------------------------------------------------------------------------
 // DECLARED CONSTANTS
 //------------------------------------------------------------------------------
@@ -109,15 +123,23 @@ const double WALL_FRONT = 0.05;   // 0.08;
 const double WALL_BACK = -0.05;   //-0.08;
 const double SPHERE_STIFFNESS = 500.0;
 const double SPHERE_MASS_SCALE_FACTOR = 0.02;
-const double F_DAMPING = 0.25; // 0.25
-const double V_DAMPING = 0.8;  // 0.1
-const double A_DAMPING = 0.99; // 0.5
+const double F_DAMPING = 0.25; // Force damping coefficient
+const double V_DAMPING = 0.8;  // Velocity damping coefficient
+const double A_DAMPING = 0.99; // Acceleration damping coefficient
 const double K_MAGNET = 500.0;
 const double HAPTIC_STIFFNESS = 1000.0;
 const double SIGMA = 1.0;
 const double EPSILON = 1.0;
 const double MAX_ATOM_SPEED = 1.0;
 const double MAX_ATOM_STEP = 0.01;
+
+// Haptic spring-damper constants (to reduce oscillations)
+const double K_HAPTIC_SPRING = 100.0;
+const double K_HAPTIC_DAMPER = 5.0;    // Damping for force mode
+const double K_RETURN_SPRING = 25.0;
+const double K_RETURN_DAMPER = 2.0;    // Damping for standby return
+const double K_POSITION_ATTRACTION = 25.0;
+const double K_POSITION_DAMPER = 2.0;  // Damping for position mode
 
 // Scales the distance betweens atoms
 const double DIST_SCALE = .02;
@@ -174,9 +196,6 @@ const cVector3d backPlaneNorm =
 // calculator
 Calculator *calculatorPtr;
 
-// radius of the camera
-double rho = .35;
-
 // a world that contains all objects of the virtual environment
 cWorld *world;
 
@@ -206,9 +225,6 @@ std::atomic<double> kReturn(25.0);
 std::atomic<double> kDampen(0.0); // 0 = no damping, matching original return behavior
 std::atomic<double> returnDelaySeconds(2.5);
 
-// highest stiffness the current haptic device can render
-double hapticDeviceMaxStiffness;
-
 // sphere objects
 vector<Atom *> spheres;
 
@@ -231,9 +247,6 @@ cLabel *LJ_num;
 // label showing the # anchored
 cLabel *num_anchored;
 
-// a label to display the total energy of the system
-cLabel *total_energy;
-
 // a label to show whether or not the atoms are frozen
 cLabel *isFrozen;
 
@@ -248,7 +261,7 @@ cLabel *scope_upper;
 cLabel *scope_lower;
 
 // a flag that indicates if the haptic simulation is currently running
-bool simulationRunning = false;
+std::atomic<bool> simulationRunning{false};
 
 // a flag that indicates if the haptic simulation has terminated
 bool simulationFinished = true;
@@ -268,17 +281,16 @@ cThread *hapticsThread;
 // a handle to window display context
 GLFWwindow *window = NULL;
 
-// current width of window
-int width = 0;
+// a handle to slider control window
+GLFWwindow *sliderWindow = NULL;
 
-// current height of window
+// current framebuffer (render) size in pixels.
+// NOTE: on HiDPI / Retina displays this is LARGER than the window size in points.
+int width = 0;
 int height = 0;
 
-// swap interval for the display context (vertical synchronization)
-int swapInterval = 1;
-
-// root resource path
-string resourceRoot;
+// radius of the camera
+double rho = .35; 
 
 // a scope to monitor the potential energy
 cScope *scope;
@@ -296,33 +308,31 @@ cVector3d selectedAtomOffset;
 // position of mouse click.
 cVector3d selectedPoint;
 
+// swap interval for the display context (vertical synchronization)
+
+int swapInterval = 1;
 
 std::atomic<bool> freezeAtoms(false); // determine if atoms should be frozen
+
 std::atomic<bool> renderAtoms(true); // determine if atom spheres should be drawn
 std::atomic<bool> renderForceVectors(true); // determine if force vector lines should be drawn
 std::atomic<bool> renderBonds(true); // determine if bond lines should be drawn
 double centerCoords[3] = {50.0, 50.0, 50.0}; // save coordinates of central atom
+
+std::atomic<int> screenshotCounter(-2); // keep track of how long screenshot label has been displayed
+std::atomic<int> writeConCounter(-2);  // keep track of how long write to con label has been displayed
+
 LocalPotential energySurface = LENNARD_JONES; // default potential is Lennard Jones
 bool global_min_known = true; // check if able to read in the global min
 cPanel *helpPanel; // panel that displays hotkeys
 cLabel *helpHeader; // help panel header
-vector<cLabel *> hotkeyKeys; // vector holding hotkey key labels
-
-// vector holding function key labels (must be separate for formatting)
-vector<cLabel *> hotkeyFunctions;
-
-// keep track of how long screenshot label has been displayed
-std::atomic<int> screenshotCounter(-2);
-
-// keep track of how long write to con label has been displayed
-std::atomic<int> writeConCounter(-2);
 
 std::atomic<double> displayedPotentialEnergy(0.0);
-std::atomic<int> displayedAnchoredCount(0);
 std::recursive_mutex sceneMutex;
 std::atomic<bool> hapticsThreadStarted(false);
 int currentIndex = 0;
-
+vector<cLabel *> hotkeyKeys; // vector holding hotkey key labels
+vector<cLabel *> hotkeyFunctions; // vector holding function key labels (must be separate for formatting)
 // screenshot notification label
 cLabel *screenshotLabel;
 
@@ -342,8 +352,10 @@ void initializeWorld();
 void initializeCamera();
 void initializeLight();
 void initializeHapticDevice();
+void initializeAtomLabels();
+void addDebugLabel(std::string text);
 
-void placeAtoms(std::array<double, 9> aseCell, std::array<int, 3> &asePbc, int argc, char *argv[]);
+void placeAtoms(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int argc, char *argv[]);
 Atom* initializeAtom(cTexture2dPtr texture, int atomicNumber);
 void initializeAtomPosition(Atom *new_atom, double spawnRadiusWorldUnits);
 void initializeCalculator(int argc, char *argv[], std::array<double, 9> aseCell,
@@ -354,10 +366,17 @@ void initializePotentialLabel();
 void initializePotentialEnergyPlot();
 void initializeHelpPanel();
 void initializeHapticThread();
+void initializeSliderUI();
 void runGraphicsLoop();
+void renderSliderWindow();
+double getSimulationTimeStep();
+void updateSliderWindowTitle();
+void sliderWindowSizeCallback(GLFWwindow *a_window, int a_width, int a_height);
+void sliderWindowCursorPosCallback(GLFWwindow *a_window, double a_posX, double a_posY);
+void sliderWindowMouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action, int a_mods);
 
-// callback when the window display is resized
-void windowSizeCallback(GLFWwindow *a_window, int a_width, int a_height);
+// callback when the framebuffer is resized (size in pixels, not window points)
+void framebufferSizeCallback(GLFWwindow *a_window, int a_width, int a_height);
 
 // callback when an error GLFW occurs
 void errorCallback(int error, const char *a_description);
@@ -411,8 +430,11 @@ static string getExecutableDir() {
   return executablePath.substr(0, separator);
 }
 
+// RETURNS THE PATHS TO RESOURCES FILES
 static vector<string> getResourceSearchRoots() {
   vector<string> roots;
+  // root resource path
+  string resourceRoot;
   if (!resourceRoot.empty()) {
     roots.push_back(resourceRoot);
   }
@@ -424,6 +446,7 @@ static vector<string> getResourceSearchRoots() {
 
   roots.push_back("./");
   roots.push_back("../");
+  roots.push_back("./bin/");
   roots.push_back("../bin/");
 
   return roots;
@@ -444,6 +467,7 @@ static bool isFiniteVector(const cVector3d &value) {
   return std::isfinite(value.x()) && std::isfinite(value.y()) && std::isfinite(value.z());
 }
 
+// THIS CALCULATES THE MAGNTIUDES OF THE VECTORS  
 static cVector3d clampVectorMagnitude(const cVector3d &value, const double maxMagnitude) {
   if (!isFiniteVector(value)) {
     return cVector3d(0.0, 0.0, 0.0);
@@ -482,7 +506,10 @@ int main(int argc, char *argv[]) {
   // HAPTIC DEVICE
   initializeHapticDevice();
   
-  string hapticModeStr = argv[1];
+  if (argc < 2) {
+    throw std::runtime_error("Missing haptic mode argument");
+  }
+  string hapticModeStr = argv[1];  
   if (hapticModeStr == "force" || hapticModeStr == "f") {
     hapticMode = HapticMode::Force;
   } else if (hapticModeStr == "position" || hapticModeStr == "p") {
@@ -511,6 +538,10 @@ int main(int argc, char *argv[]) {
 
   // PLACE ATOMS
   placeAtoms(aseCell, asePbc, argc, argv);
+  initializeAtomLabels();
+  for (int i = 0; i < spheres.size(); i++) {
+    initialPositions.push_back(spheres[i]->getLocalPos());
+  }
 
   if (pbcMode == "on" || pbcMode == "true" || pbcMode == "1" || pbcMode == "yes") {
     asePbc = {1, 1, 1};
@@ -550,6 +581,11 @@ int main(int argc, char *argv[]) {
   }
   startIpcServer(ipcPort);
 
+
+  initializeHelpPanel();
+  initializeSliderUI();
+  
+
   // START SIMULATION
   initializeHapticThread();
   
@@ -558,6 +594,10 @@ int main(int argc, char *argv[]) {
   close();
 
   // close window
+  if (sliderWindow != NULL) {
+    glfwDestroyWindow(sliderWindow);
+    sliderWindow = NULL;
+  }
   glfwDestroyWindow(window);
   window = NULL;
 
@@ -565,8 +605,8 @@ int main(int argc, char *argv[]) {
   return 0; // exit
 }
 
-void windowSizeCallback(GLFWwindow *a_window, int a_width, int a_height) {
-  // update window size
+void framebufferSizeCallback(GLFWwindow *a_window, int a_width, int a_height) {
+  // update framebuffer (pixel) size used for rendering
   width = a_width;
   height = a_height;
 }
@@ -616,12 +656,23 @@ void initializeGLFW() {
     throw std::runtime_error("Failed to create window!");
   }
 
-  glfwGetWindowSize(window, &width, &height); // get width and height of window
+  sliderWindow = glfwCreateWindow(340, 170, "Controls", NULL, window);
+  if (!sliderWindow) {
+    cSleepMs(1000);
+    glfwTerminate();
+    throw std::runtime_error("Failed to create slider window!");
+  }
+
+  glfwGetFramebufferSize(window, &width, &height); // framebuffer size in pixels (HiDPI-aware)
   glfwSetWindowPos(window, windowX, windowY); // set position of window
+  glfwSetWindowPos(sliderWindow, windowX + windowWidth + 20, windowY);
   glfwSetKeyCallback(window, keyCallback); // set key callback
   glfwSetCursorPosCallback(window, mouseMotionCallback); // set mouse position callback
   glfwSetMouseButtonCallback(window, mouseButtonCallback); // set mouse button callback
-  glfwSetWindowSizeCallback(window, windowSizeCallback); // set resize callback
+  glfwSetFramebufferSizeCallback(window, framebufferSizeCallback); // track render size on resize
+  glfwSetCursorPosCallback(sliderWindow, sliderWindowCursorPosCallback);
+  glfwSetMouseButtonCallback(sliderWindow, sliderWindowMouseButtonCallback);
+  glfwSetWindowSizeCallback(sliderWindow, sliderWindowSizeCallback);
   glfwMakeContextCurrent(window); // set current display context
   glfwSwapInterval(swapInterval); // sets the swap interval for the current display context
 }
@@ -659,7 +710,6 @@ void initializeCamera() {
 
   // sets the camera's position to have a radius of .1, located at 0 radians (vertically and horizontally)
   camera->setSphericalRad(rho, 0, 0);
-
   // set the near and far clipping planes of the camera anything in front or behind these clipping
   // planes will not be rendered
   camera->setClippingPlanes(0.01, 10.0);
@@ -703,6 +753,7 @@ void initializeLight() {
 void initializeHapticDevice() {
   handler = new cHapticDeviceHandler(); // create a haptic device handler
   // get access to the first available haptic device
+  double hapticDeviceMaxStiffness;   // highest stiffness the current haptic device can render
   if (handler->getNumDevices() > 0) {
     handler->getDevice(hapticDevice, 0);
   }
@@ -718,7 +769,52 @@ void initializeHapticDevice() {
   }
 }
 
-void placeAtoms(std::array<double, 9> aseCell, std::array<int, 3> &asePbc, int argc, char *argv[]) {
+
+void placeAtomsAse(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, cTexture2dPtr texture, char *argv[]) {
+  AseStructureData structure;
+  try {
+    structure = loadAseStructure(argv[2]);
+  } catch (const std::exception &ex) {
+    close();
+    throw std::runtime_error(ex.what());
+  }
+  const std::vector<std::array<double, 3>> &positions = structure.positions;
+  const std::vector<int> &startingAtomicNrs = structure.atomicNumbers;
+  // comment out below for no pbc
+  aseCell = structure.cell;
+  asePbc = structure.pbc;
+  const int nAtoms = static_cast<int>(positions.size());
+
+  for (int i = 0; i < nAtoms; i++) {
+    Atom *newAtom = initializeAtom(texture, startingAtomicNrs[i]); // Create atom pointer
+    // Set the positions of all atoms
+    if (i == 0) {
+      // make very first atom the current atom
+      newAtom->setCurrent(true);
+      // get coordinates from pPositionTriplet
+      for (int j = 0; j < 3; j++) {
+        centerCoords[j] = positions[0][static_cast<size_t>(j)];
+      }
+      newAtom->setLocalPos(0.0, 0.0, 0.0); // set first atom at center of view
+    } else {
+      // newAtom->setAnchor(true); // Anchor by default
+        // scale coordinates and insert
+        if (hapticMode == HapticMode::Standby) {
+          newAtom->setLocalPos(
+              0.02 * (positions[i][0] - centerCoords[0]  + 0.1), // position offset -- should probably disappear once we get boxes working
+              0.02 * (positions[i][1] - centerCoords[1] + 0.1),
+              0.02 * (positions[i][2] - centerCoords[2] + 0.1) );
+        } else {
+          newAtom->setLocalPos(
+              0.02 * (positions[i][0] - centerCoords[0]), // position offset -- should probably disappear once we get boxes working
+              0.02 * (positions[i][1] - centerCoords[1]),
+              0.02 * (positions[i][2] - centerCoords[2]));
+        }
+    }
+  }
+}
+
+void placeAtoms(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int argc, char *argv[]) {
   cTexture2dPtr texture = cTexture2d::create(); // create texture
   // load texture file
   bool fileload = loadChaiResource([&](const char *path)
@@ -754,41 +850,9 @@ void placeAtoms(std::array<double, 9> aseCell, std::array<int, 3> &asePbc, int a
         initializeAtomPosition(new_atom, spawnRadiusWorldUnits); // set the position of the atom
       }
     }
-  } else { // read in specified file
-    AseStructureData structure;
-    try {
-      structure = loadAseStructure(argv[2]);
-    } catch (const std::exception &ex) {
-      close();
-      throw std::runtime_error(ex.what());
-    }
-    const std::vector<std::array<double, 3>> &positions = structure.positions;
-    const std::vector<int> &startingAtomicNrs = structure.atomicNumbers;
-    aseCell = structure.cell;
-    asePbc = structure.pbc;
-    const int nAtoms = static_cast<int>(positions.size());
+  } else // read in specified file
+    placeAtomsAse(aseCell, asePbc, texture, argv);
 
-    for (int i = 0; i < nAtoms; i++) {
-      Atom *newAtom = initializeAtom(texture, startingAtomicNrs[i]); // Create atom pointer
-      // Set the positions of all atoms
-      if (i == 0) {
-        // make very first atom the current atom
-        newAtom->setCurrent(true);
-        // get coordinates from pPositionTriplet
-        for (int j = 0; j < 3; j++) {
-          centerCoords[j] = positions[0][static_cast<size_t>(j)];
-        }
-        newAtom->setLocalPos(0.0, 0.0, 0.0); // set first atom at center of view
-      } else {
-        // newAtom->setAnchor(true); // Anchor by default
-        // scale coordinates and insert
-        newAtom->setLocalPos(
-            0.02 * (positions[i][0] - centerCoords[0]), // position offset -- should probably disappear once we get boxes working
-            0.02 * (positions[i][1] - centerCoords[1]),
-            0.02 * (positions[i][2] - centerCoords[2]));
-      }
-    }
-  }
   // Done reading any sort of info.
   for (int i = 0; i < spheres.size(); i++) {
     spheres[i]->setVelocity(0);
@@ -843,6 +907,11 @@ void initializeAtomPosition(Atom *new_atom, double spawnRadiusWorldUnits) {
 
 void initializeCalculator(int argc, char *argv[], std::array<double, 9> aseCell,
     std::array<int, 3> asePbc) {
+    if (argc < 4) {
+      energySurface = LENNARD_JONES;
+      calculatorPtr = new ljCalculator();
+      return;
+    }
     string potential = argv[3];
     for (char &c : potential) {
       c = tolower(c);
@@ -938,13 +1007,19 @@ void initializeLabels() {
   addLabel(labelRates); // create a label to display the haptic and graphic rate of the simulation
   addLabel(LJ_num); // potential energy label
   addLabel(num_anchored); // number anchored label
+  
+  cLabel *total_energy; // a label to display the total energy of the system
   addLabel(total_energy); // total energy label
   addLabel(isFrozen); // frozen state label
   addLabel(camera_pos); // camera position label
   addLabel(potentialLabel); // energy surface label
 
-  // Add labels to the graph
-  addLabel(scope_upper); 
+  addDebugLabel("Force magnitude: ");
+  addDebugLabel("Atom pos: ");
+  addDebugLabel("Nearest neighbor: ");
+  addDebugLabel("Max force: ");
+  
+  addLabel(scope_upper); // Add labels to the graph
   addLabel(scope_lower);
 
   hapticPositionLabel->setLocalPos(0, 50);
@@ -959,16 +1034,24 @@ void initializeLabels() {
   writeConLabel->setShowEnabled(false);
   screenshotLabel->setShowEnabled(false);
 
-  //initializeHotkeyLabels();
-
   screenshotLabel->setText("Screenshot taken");
   writeConLabel->setText("Con file written");
 
   initializePotentialLabel();
 
-  // sets the text for the camera position to appear on screen
   camera_pos->setLocalPos(0, 30, 0);
   updateCameraLabel(camera_pos, camera);
+}
+void initializeAtomLabels() {
+  cFontPtr atomLabelFont = NEW_CFONT_CALIBRI_20();
+  for (int i = 0; i < spheres.size(); i++) {
+    cLabel *label = new cLabel(atomLabelFont);
+    label->m_fontColor.setBlack();
+    label->setText(to_string(i));
+    label->setShowEnabled(false);
+    camera->m_frontLayer->addChild(label);
+    debugAtomLabels.push_back(label);
+  }
 }
 
 void initializeHotkeyLabels() {
@@ -989,6 +1072,8 @@ void initializeHotkeyLabels() {
   addHotkeyLabel("I, K", "move current atom up/down");
   addHotkeyLabel("J, L", "move current atom left/right");
   addHotkeyLabel("O, P", "move current atom forward/back");
+  addHotkeyLabel("d", "toggle debug info");
+  addHotkeyLabel("t", "reset atom structure");
   addHotkeyLabel("CTRL", "toggle help panel");
 }
 
@@ -1013,6 +1098,7 @@ void initializePotentialEnergyPlot() {
   camera->m_frontLayer->addChild(scope);
   scope->setSignalEnabled(true, true, false, false);
   scope->setTransparencyLevel(.7);
+  scope->setShowEnabled(false);
   global_minimum = getGlobalMinima(spheres.size());
   double lower_bound, upper_bound;
   if (global_minimum != 0 && (energySurface == LENNARD_JONES)) {
@@ -1049,7 +1135,7 @@ void initializeHelpPanel() {
 
   helpPanel = new cPanel();
   helpPanel->setColor(panelColor);
-  helpPanel->setSize(520, 500);
+  helpPanel->setSize(520, 600);
   camera->m_frontLayer->addChild(helpPanel);
   helpPanel->setShowPanel(false);
 
@@ -1079,14 +1165,23 @@ void initializeprevPositions() {
   }
 }
 
+double getMean(vector<int> v) {
+  int sum = 0;
+  for (int i = 0; i < v.size(); i++) {
+    sum += v[i];
+  }
+  return sum / v.size();
+}
+
+vector<int> frequencies;
 void runGraphicsLoop() {
-  windowSizeCallback(window, width, height); // call window size callback at initialization
+  framebufferSizeCallback(window, width, height); // initialize framebuffer size
   cPrecisionClock keyboardModeClock;
   keyboardModeClock.reset();
   keyboardModeClock.start();
   // main graphic loop
   while (!glfwWindowShouldClose(window)) {
-    glfwGetWindowSize(window, &width, &height); // get width and height of window
+    glfwGetFramebufferSize(window, &width, &height); // framebuffer size in pixels (HiDPI-aware)
     if (!hapticDevice) {
       keyboardModeClock.stop();
       double timeInterval = cMin(simulationTimeStep.load(), keyboardModeClock.getCurrentTimeSeconds());
@@ -1097,10 +1192,16 @@ void runGraphicsLoop() {
     }
     updateGraphics(); // render graphics
     glfwSwapBuffers(window); // swap buffers
+    renderSliderWindow();
     glfwPollEvents(); // process events
     freqCounterGraphics.signal(1); // signal frequency counter
+    frequencies.push_back(freqCounterHaptics.getFrequency());
+    cout << getMean(frequencies) << endl;
+    // cout << freqCounterHaptics.getFrequency() << endl;
   }
 }
+
+
 
 void close(void) { // stop the simulation
   static bool closed = false;
@@ -1139,22 +1240,26 @@ void updateCounters(cLabel *label, std::atomic<int> &counter) {
 }
 
 void updateLabels() {
-  // update haptic and graphic rate data
+  const bool debugVisible = showDebug;
+
   labelRates->setText(cStr(freqCounterGraphics.getFrequency(), 0) + " Hz / " +
                       cStr(freqCounterHaptics.getFrequency(), 0) + " Hz");
-  // update position of label
   labelRates->setLocalPos((int)(0.5 * (width - labelRates->getWidth())), 15);
+  labelRates->setShowEnabled(debugVisible);
+
   double x = hapticPosition.get(0);
   double y = hapticPosition.get(1);
   double z = hapticPosition.get(2);
   hapticPositionLabel->setText("Position: " + cStr(x, 2) + ", " + cStr(y, 2) + ", " + cStr(z, 2));
-
+  hapticPositionLabel->setShowEnabled(debugVisible);
 
   updateCameraLabel(camera_pos, camera);
+  camera_pos->setShowEnabled(debugVisible);
 
   string trueFalse = freezeAtoms.load() ? "true" : "false";
   isFrozen->setText("Freeze simulation: " + trueFalse);
   isFrozen->setLocalPos((width - isFrozen->getWidth()) - 5, 15);
+  isFrozen->setShowEnabled(debugVisible);
 
   screenshotLabel->setLocalPos(5, height - 20);
   updateCounters(screenshotLabel, screenshotCounter);
@@ -1192,6 +1297,74 @@ void updateLabels() {
     double rowY = height - topMargin - headerReserve - i * rowSpacing;
     tempKeyLabel->setLocalPos(width - 540, rowY);
     tempFuncLabel->setLocalPos(width - 350, rowY);
+  }
+
+  if (showDebug) {
+    // current atom force magnitude
+    cVector3d force = spheres[currentIndex]->getForce();
+    debugLabels[0]->setText("Force magnitude: " + cStr(force.length(), 5));
+
+    // current atom position
+    cVector3d pos = spheres[currentIndex]->getLocalPos();
+    debugLabels[1]->setText("Atom pos: (" + cStr(pos.x(), 3) + ", " + cStr(pos.y(), 3) + ", " + cStr(pos.z(), 3) + ")");
+
+    // nearest neighbor distance
+    double minDist = std::numeric_limits<double>::max();
+    for (int i = 0; i < spheres.size(); i++) {
+      if (i != currentIndex) {
+        double dist = cDistance(spheres[currentIndex]->getLocalPos(), spheres[i]->getLocalPos());
+        if (dist < minDist) minDist = dist;
+      }
+    }
+    debugLabels[2]->setText("Nearest neighbor: " + cStr(minDist / 0.02, 5) + " Ang");
+
+    // max force across all atoms
+    double maxForce = 0;
+    int maxForceIndex = 0;
+    for (int i = 0; i < spheres.size(); i++) {
+      double mag = spheres[i]->getForce().length();
+      if (mag > maxForce) {
+        maxForce = mag;
+        maxForceIndex = i;
+      }
+    }
+    debugLabels[3]->setText("Max force: " + cStr(maxForce, 5) + " (atom " + to_string(maxForceIndex) + ")");
+
+    // position all debug labels
+    for (int i = 0; i < debugLabels.size(); i++) {
+      debugLabels[i]->setLocalPos(width - 250, 80 + i * 20);
+      debugLabels[i]->setShowEnabled(true);
+    }
+
+    // atom index labels  
+    for (int i = 0; i < debugAtomLabels.size(); i++) {
+      cVector3d atomPos = spheres[i]->getLocalPos();
+      cVector3d camPos = camera->getLocalPos();
+      cVector3d camLook = camera->getLookVector();
+      cVector3d camUp = camera->getUpVector();
+      cVector3d camRight = camera->getRightVector();
+      cVector3d toAtom = atomPos - camPos;
+      double depth = toAtom.dot(camLook);
+      if (depth > 0) {
+        double fov = camera->getFieldViewAngleRad();
+        double scaleY = (0.5 * height) / tan(0.5 * fov);
+        double scaleX = scaleY;
+        double screenX = (toAtom.dot(camRight) / depth) * scaleX + 0.5 * width;
+        double screenY = (toAtom.dot(camUp) / depth) * scaleY + 0.5 * height;
+        debugAtomLabels[i]->setLocalPos((int)screenX, (int)screenY);
+        debugAtomLabels[i]->setShowEnabled(true);
+      } else {
+        debugAtomLabels[i]->setShowEnabled(false);
+      }
+    }
+
+  } else {
+    for (int i = 0; i < debugLabels.size(); i++) {
+      debugLabels[i]->setShowEnabled(false);
+    }
+    for (int i = 0; i < debugAtomLabels.size(); i++) {
+      debugAtomLabels[i]->setShowEnabled(false);
+    }
   }
 }
 
@@ -1240,7 +1413,7 @@ void updateBonds(void) {
 
 void updateGraphics(void) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-
+  std::atomic<int> displayedAnchoredCount(0);
   // UPDATE WIDGETS
   updateLabels();
 
@@ -1254,13 +1427,27 @@ void updateGraphics(void) {
   }
   updateBonds();
 
+  helpPanel->setLocalPos(width - 550, height - 600);
+  helpHeader->setLocalPos(width - 490, height - 70);
+  
+  const bool debugVisible = showDebug;
   const double potentialEnergy = displayedPotentialEnergy.load();
   LJ_num->setText("Potential Energy: " + cStr(potentialEnergy, 5));
   LJ_num->setLocalPos(0, 15, 0);
+  LJ_num->setShowEnabled(debugVisible);
 
-  num_anchored->setText(to_string(displayedAnchoredCount.load()) + " anchored / " +
+  int anchoredCount = 0;
+  for (int i = 0; i < spheres.size(); i++) {
+    if (spheres[i]->isAnchor()) anchoredCount++;
+  }
+  num_anchored->setText(to_string(anchoredCount) + " anchored / " +
                         to_string(spheres.size()) + " total");
   num_anchored->setLocalPos((width - num_anchored->getWidth()) - 5, 0);
+  num_anchored->setShowEnabled(debugVisible);
+
+  scope->setShowEnabled(debugVisible);
+  scope_upper->setShowEnabled(debugVisible);
+  scope_lower->setShowEnabled(debugVisible);
 
   scope->setSignalValues(potentialEnergy, global_minimum);
   if (!global_min_known && global_minimum < scope->getRangeMin()) {
@@ -1273,7 +1460,7 @@ void updateGraphics(void) {
 
   // RENDER SCENE
   world->updateShadowMaps(false, false); // update shadow maps (if any)
-  camera->renderView(width, height); // render world
+  camera->renderView(width, height); // render world (width/height are framebuffer pixels)
   glFinish(); // wait until all GL commands are completed
   GLenum err = glGetError(); // check for any OpenGL errors
   if (err != GL_NO_ERROR)
@@ -1311,15 +1498,14 @@ void switchCurrentAtom() {
   if (spheres.empty()) {
     return;
   }
+  currentIndex %= spheres.size();
   Atom* current = spheres[currentIndex];
   int prev_curr_atom = currentIndex;
-  currentIndex = remainder(currentIndex + 1, spheres.size());
-  if (currentIndex < 0)
+  currentIndex = (currentIndex + 1) % spheres.size();  if (currentIndex < 0)
     currentIndex += spheres.size();
   int startAtom = currentIndex;
   while (spheres[currentIndex]->isAnchor()) {
-    currentIndex = remainder(currentIndex + 1, spheres.size());
-    if (currentIndex < 0)
+    currentIndex = (currentIndex + 1) % spheres.size();    if (currentIndex < 0)
       currentIndex += spheres.size();
     if (currentIndex == startAtom)
       break;
@@ -1384,21 +1570,30 @@ cVector3d getNewAtomPosition(Atom *atom, cVector3d &prev_position, const double 
 
 cVector3d forceModeUpdate(Atom *current, cVector3d position, const double timeInterval) {
   // spring constant haptic device feels
-  const double K_HAPTIC = 100;
+  const double K_HAPTIC = K_HAPTIC_SPRING;
   // spring constant atom feels
-  const double K_CURRENT = 100;
+  const double K_CURRENT = K_HAPTIC_SPRING;
+  // damping coefficients
+  const double K_HAPTIC_DAMP = K_HAPTIC_DAMPER;
+  const double K_CURRENT_DAMP = K_HAPTIC_DAMPER;
 
   cVector3d positionErr = position - current->getLocalPos();
 
-  cVector3d hapticForce = positionErr * K_CURRENT;
+  // Calculate velocity for damping (using previous position)
+  cVector3d currentPrevPos = prevPositions[currentIndex];
+  cVector3d velocity = (current->getLocalPos() - currentPrevPos) / timeInterval;
+
+  // Spring force + damping force on atom
+  cVector3d hapticForce = positionErr * K_CURRENT - velocity * K_CURRENT_DAMP;
   current->setForce(current->getForce() + hapticForce);
 
-  cVector3d currentPrevPos = prevPositions[currentIndex];
-  cVector3d currentPos = current->getLocalPos();
   current->setLocalPos(getNewAtomPosition(current, currentPrevPos, timeInterval));
-  prevPositions[currentIndex] = currentPos;
+  prevPositions[currentIndex] = current->getLocalPos();
 
-  return (current->getLocalPos() - position) * K_HAPTIC;
+  // Spring force + damping force returned to haptic device
+  cVector3d forceErr = current->getLocalPos() - position;
+  cVector3d hapticVelocity = (current->getLocalPos() - currentPrevPos) / timeInterval;
+  return forceErr * K_HAPTIC - hapticVelocity * K_HAPTIC_DAMP;
 }
 
 bool prevHapticInitialized;
@@ -1425,44 +1620,114 @@ double getStrongestScalarProj(cVector3d v) {
   return strongest;
 }
 
+void recordForceHistory(Atom *current) {
+  constexpr double REST_ERR = 0.001;
+
+  if (!simulating) return;
+  if (current->getForce().length() < REST_ERR) return;
+
+  prevForces[prevForcesIndex] = current->getForce();
+  prevForcesIndex = (prevForcesIndex + 1) % MAX_FORCE_HISTORY;
+}
+
+std::optional<cVector3d> updateStandbyModeSimulating(Atom *current, cVector3d& position, double timeInterval) {
+  constexpr double HAPTIC_RADIUS = .02;
+  constexpr double K_HAPTIC = 1; // spring constant for applying vector projection
+
+  if (position.length() < HAPTIC_RADIUS) {
+    cVector3d temp = current->getLocalPos();
+    current->setLocalPos(getNewAtomPosition(current, prevPositions[currentIndex], timeInterval));
+    prevPositions[currentIndex] = temp;
+
+    double distFromCenter = position.length() - finalErr;
+    position.normalize();
+    return getStrongestScalarProj(-position) * -position * (distFromCenter / HAPTIC_RADIUS) * K_HAPTIC;
+  }
+  simulating = false;
+  return std::nullopt;
+}
+
+std::optional<cVector3d> updateStandbyState(Atom *current, const cVector3d& position,
+                                          const cVector3d& dPHaptic, double timeInterval) {
+  // position err acceptable for return mechanism to return to center,
+  // live-tunable via the IPC "set settling_err" command / launcher UI
+  double SETTLING_ERR = settlingError.load();
+  // spring constant for return haptic controller to center, live-tunable via
+  // the IPC "set k_return" command / launcher UI
+  double K_RETURN = kReturn.load();
+  constexpr double K_DAMPING = 8.0;
+  constexpr double RETURN_DELAY_SECONDS = 5.0;
+
+  if (position.length() >= SETTLING_ERR) {
+    if (resetting && confirming) {
+      cout << "Not yet settled!" << endl;
+    }
+    confirming = false;
+    // delay (seconds) after entering standby before the return mechanism
+    // kicks in, live-tunable via the IPC "set return_delay" command / launcher UI
+    if (positionClock.getCurrentTimeSeconds() >= returnDelaySeconds.load() || resetting) {
+      positionClock.stop();
+      positionClock.reset();
+      if (!resetting) {
+        cout << "Resetting to center..." << endl;
+      }
+      resetting = true;
+
+      const double MAX_FORCE = 1.6; // maximum force the return mechanism should output
+
+      double distanceFromCenter = position.length();
+      double springScale = 0.5 + (distanceFromCenter / (SETTLING_ERR * 2.0));
+      if (springScale > 1.0) {
+        springScale = 1.0;
+      }
+
+      // velocity-based damping on the return spring, live-tunable via the
+      // IPC "set k_dampen" command / launcher UI; defaults to 0 (no
+      // damping) so existing return behavior is unchanged until set
+      cVector3d hapticVelocity = dPHaptic / timeInterval;
+      cVector3d returnVector = -position * K_RETURN - hapticVelocity * kDampen.load();
+      return clampVectorMagnitude(returnVector, MAX_FORCE);
+    }
+  } else {
+    if (!confirming) {
+      cout << "Starting confirmation..." << endl;
+      positionClock.start();
+      confirming = true;
+    }
+    
+    if (positionClock.getCurrentTimeSeconds() >= .5) {
+      cout << "Done!" << endl;
+      standby = false;
+      resetting = false;
+      confirming = false;
+      prevHapticInitialized = false;
+      simulating = true;
+      positionClock.stop();
+      positionClock.reset();
+
+      prevPositions[currentIndex] = current->getLocalPos();
+      finalErr = position.length();
+    }
+    return cVector3d(0,0,0);
+  }
+  return std::nullopt;
+}
+
 cVector3d standbyModeUpdate(Atom *current, cVector3d position, const double timeInterval) {
+  constexpr double STANDBY_ERR = .1; // movement err acceptable for standby mode to activate
+
   if (!prevHapticInitialized) {
     prevHapticInitialized = true;
     prevHapticPosition = position;
   }
-  const int REST_ERR = .001;
-  if (simulating && current->getForce().length() >= REST_ERR) {
-    prevForces[prevForcesIndex] = current->getForce();
-    prevForcesIndex++;
-    prevForcesIndex %= MAX_FORCE_HISTORY;
-  }
-  
+  recordForceHistory(current);
+
   cVector3d dPHaptic = position - prevHapticPosition;
   prevHapticPosition = position;
 
-  // spring constant for return haptic controller to center, live-tunable via
-  // the IPC "set k_return" command / launcher UI
-  const double K_RETURN = kReturn.load();
-  const double K_HAPTIC = 1; // spring constant for applying vector projection
-
-  // position err acceptable for return mechanism to return to center,
-  // live-tunable via the IPC "set settling_err" command / launcher UI
-  const double SETTLING_ERR = settlingError.load();
-
-  const double STANDBY_ERR = .1; // movement err acceptable for standby mode to activate
-  const double HAPTIC_RADIUS = .08; // "escape" radius to get out of simulating mode
-
-  if (simulating) {  
-    if (position.length() < HAPTIC_RADIUS) {
-      cVector3d temp = current->getLocalPos();
-      current->setLocalPos(getNewAtomPosition(current, prevPositions[currentIndex], timeInterval));
-      prevPositions[currentIndex] = temp;
-
-      double distFromCenter = position.length() - finalErr;
-      position.normalize();
-      return getStrongestScalarProj(-position) * -position * (distFromCenter / HAPTIC_RADIUS) * K_HAPTIC;
-    }
-    simulating = false;
+  if (simulating) {
+    auto pos = updateStandbyModeSimulating(current, position, timeInterval);
+    if (pos) return *pos;
   } else {
     if (dPHaptic.length() < STANDBY_ERR && !standby && position.length() >= .01) {
       positionClock.start();
@@ -1470,53 +1735,10 @@ cVector3d standbyModeUpdate(Atom *current, cVector3d position, const double time
       cout << "Entering standby mode..." << endl;
     }
     if (standby) {
-      if (position.length() >= SETTLING_ERR) {
-        if (resetting && confirming) {
-          cout << "Not yet settled!" << endl;
-        }
-        confirming = false;
-        // delay (seconds) after entering standby before the return mechanism
-        // kicks in, live-tunable via the IPC "set return_delay" command / launcher UI
-        if (positionClock.getCurrentTimeSeconds() >= returnDelaySeconds.load() || resetting) {
-          positionClock.stop();
-          positionClock.reset();
-          if (!resetting) {
-            cout << "Resetting to center..." << endl;
-          }
-          resetting = true;
-
-          const double MAX_FORCE = 1.6; // maximum force the return mechanism should output
-
-          // velocity-based damping on the return spring, live-tunable via the
-          // IPC "set k_dampen" command / launcher UI; defaults to 0 (no
-          // damping) so existing return behavior is unchanged until set
-          cVector3d hapticVelocity = dPHaptic / timeInterval;
-          cVector3d returnVector = -position * K_RETURN - hapticVelocity * kDampen.load();
-          return clampVectorMagnitude(returnVector, MAX_FORCE);
-        }
-      } else {
-        if (!confirming) {
-          cout << "Starting confirmation..." << endl;
-          positionClock.start();
-          confirming = true;
-        }
-        if (positionClock.getCurrentTimeSeconds() >= .5) {
-          cout << "Done!" << endl;
-          standby = false;
-          resetting = false;
-          confirming = false;
-          prevHapticInitialized = false;
-          simulating = true;
-          positionClock.stop();
-          positionClock.reset();
-
-          prevPositions[currentIndex] = current->getLocalPos();
-          finalErr = position.length();
-        }
-        return cVector3d(0,0,0);
-      }
+      auto pos = updateStandbyState(current, position, dPHaptic, timeInterval);
+      if (pos) return *pos;
     }
-    
+
     if (dPHaptic.length() >= 1e-6 && standby && !resetting) { 
       standby = false;
       positionClock.stop();
@@ -1524,8 +1746,7 @@ cVector3d standbyModeUpdate(Atom *current, cVector3d position, const double time
       cout << "Standby cancelled!" << endl;
     }
   }
-  
-  
+
   current->setLocalPos(current->getLocalPos() + dPHaptic);
   return current->getForce();
 }
@@ -1558,6 +1779,9 @@ void moveCurrentAtom(double rightAmount, double upAmount, double forwardAmount) 
 
 cVector3d stepSimulation(const cVector3d &requestedPosition, const double timeInterval,
                         const bool hasHapticDevice) {
+  if (prevPositions.size() != spheres.size()) {
+    prevPositions.resize(spheres.size());
+  }
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   if (spheres.empty()) {
     return cVector3d(0.0, 0.0, 0.0);
@@ -1623,7 +1847,9 @@ void updateHaptics(void) {
   // simulation in now running
   simulationRunning = true;
   simulationFinished = false;
-
+  if (!hapticDevice) {
+    return;
+  }
   // open a connection to haptic device
   hapticDevice->open();
 
@@ -1668,10 +1894,6 @@ void updateHaptics(void) {
     
     readButtons(buttons, buttonReset);
 
-    // delay to slow down machine
-    // std::cout << "Starting delay...\n";
-    // std::this_thread::sleep_for(std::chrono::seconds(2));
-
     // time step the simulation runs at in seconds - shorter timesteps are more accurate, but result in slower frames
     // .001 is a good default for uma simulations; changeable at launch via
     // HAPTIC_DEVICE_TIME_STEP and live via the IPC "set timestep" command
@@ -1693,4 +1915,299 @@ void updateHaptics(void) {
   // Close the calculator
   delete calculatorPtr;
   calculatorPtr = nullptr;
+}
+
+//------------------------------------------------------------------------------
+// SLIDER CONTROL WINDOW
+//------------------------------------------------------------------------------
+struct SliderConfig {
+  string name;
+  double minValue;
+  double maxValue;
+  double defaultValue;
+  string units;
+  double displayScale;
+  int displayDigits;
+};
+
+struct SliderUI {
+  string id;
+  string name;
+  string units;
+  double minValue;
+  double maxValue;
+  double value;
+  double displayScale;
+  int displayDigits;
+  bool dragging;
+
+  double normalizedValue() const {
+    if (maxValue <= minValue) {
+      return 0.0;
+    }
+    return (value - minValue) / (maxValue - minValue);
+  }
+
+  void setNormalizedValue(double normalizedValue) {
+    double clampedValue = normalizedValue;
+    if (clampedValue < 0.0) {
+      clampedValue = 0.0;
+    }
+    if (clampedValue > 1.0) {
+      clampedValue = 1.0;
+    }
+    value = minValue + clampedValue * (maxValue - minValue);
+  }
+
+  string displayText() const {
+    return name + ": " + cStr(value * displayScale, displayDigits) + " " + units;
+  }
+};
+
+const int SLIDER_WINDOW_WIDTH = 340;
+const int SLIDER_WINDOW_HEIGHT = 170;
+const int SLIDER_WIDTH = 240;
+const int SLIDER_LEFT = 50;
+const int SLIDER_TOP = 45;
+const int SLIDER_ROW_SPACING = 52;
+
+int sliderWindowWidth = SLIDER_WINDOW_WIDTH;
+int sliderWindowHeight = SLIDER_WINDOW_HEIGHT;
+cFontPtr sliderFont;
+vector<SliderUI> sliders;
+unordered_map<string, int> sliderIndexById;
+
+// SLIDER UI STEP 1A: Add each new slider ID to this list to control display order.
+vector<string> sliderOrder = {"time_step"};
+
+// SLIDER UI STEP 1B: Add each new slider's configuration here.
+// sliderConfigs[id] = {display name, min, max, default, units, display scale, display digits}
+unordered_map<string, SliderConfig> sliderConfigs = {
+  {"time_step", {"Time Step", 0.0001, 0.0020, 0.0010, "ms", 1000.0, 2}}
+};
+
+void generateSliderUI() {
+  sliders.clear();
+  sliderIndexById.clear();
+
+  for (const string &id : sliderOrder) {
+    const SliderConfig &config = sliderConfigs[id];
+
+    SliderUI slider;
+    slider.id = id;
+    slider.name = config.name;
+    slider.units = config.units;
+    slider.minValue = config.minValue;
+    slider.maxValue = config.maxValue;
+    slider.value = config.defaultValue;
+    slider.displayScale = config.displayScale;
+    slider.displayDigits = config.displayDigits;
+    slider.dragging = false;
+
+    sliderIndexById[id] = sliders.size();
+    sliders.push_back(slider);
+  }
+}
+
+double getSliderValue(const string &id, double fallback) {
+  auto it = sliderIndexById.find(id);
+  if (it == sliderIndexById.end()) {
+    return fallback;
+  }
+  return sliders[it->second].value;
+}
+
+// SLIDER UI STEP 2: Add a getter for each slider value
+// The fallback should match that sliders default value in sliderConfigs.
+double getSimulationTimeStep() {
+  return getSliderValue("time_step", 0.0010);
+}
+
+// SLIDER UI STEP 3: Replace direct variable usage with the getter where needed.
+// Example: use getSimulationTimeStep() instead of hardcoding the timestep.
+void initializeSliderUI() {
+  sliderFont = NEW_CFONT_CALIBRI_20();
+  generateSliderUI();
+  updateSliderWindowTitle();
+}
+
+void sliderWindowSizeCallback(GLFWwindow *a_window, int a_width, int a_height) {
+  sliderWindowWidth = a_width;
+  sliderWindowHeight = a_height;
+}
+
+void getSliderLayout(int sliderIndex, double &trackX, double &trackY) {
+  trackX = SLIDER_LEFT;
+  trackY = SLIDER_TOP + sliderIndex * SLIDER_ROW_SPACING;
+}
+
+double getSliderNormalizedValueFromMouseX(int sliderIndex, double mouseX) {
+  double trackX;
+  double trackY;
+  getSliderLayout(sliderIndex, trackX, trackY);
+
+  double normalizedValue = (mouseX - trackX) / SLIDER_WIDTH;
+  if (normalizedValue < 0.0) {
+    return 0.0;
+  }
+  if (normalizedValue > 1.0) {
+    return 1.0;
+  }
+  return normalizedValue;
+}
+
+bool isMouseOverSlider(int sliderIndex, double mouseX, double mouseY) {
+  double trackX;
+  double trackY;
+  getSliderLayout(sliderIndex, trackX, trackY);
+
+  return (mouseX >= trackX - 12 && mouseX <= trackX + SLIDER_WIDTH + 12 &&
+          mouseY >= trackY - 18 && mouseY <= trackY + 18);
+}
+
+void updateSliderWindowTitle() {
+  if (sliderWindow == NULL) {
+    return;
+  }
+  glfwSetWindowTitle(sliderWindow, "Controls");
+}
+
+void drawRect(double x, double y, double w, double h, float r, float g, float b) {
+  glColor3f(r, g, b);
+  glBegin(GL_QUADS);
+  glVertex2d(x, y);
+  glVertex2d(x + w, y);
+  glVertex2d(x + w, y + h);
+  glVertex2d(x, y + h);
+  glEnd();
+}
+
+void drawSliderText(const string &text, double x, double y) {
+  if (!sliderFont) {
+    return;
+  }
+
+  cRenderOptions options;
+  options.m_camera = nullptr;
+  options.m_single_pass_only = true;
+  options.m_render_opaque_objects_only = true;
+  options.m_render_transparent_front_faces_only = false;
+  options.m_render_transparent_back_faces_only = false;
+  options.m_enable_lighting = false;
+  options.m_render_materials = false;
+  options.m_render_textures = true;
+  options.m_creating_shadow_map = false;
+  options.m_rendering_shadow = false;
+  options.m_shadow_light_level = 0.0;
+  options.m_storeObjectPositions = false;
+  options.m_markForUpdate = false;
+
+  glDisable(GL_LIGHTING);
+  glPushMatrix();
+  glTranslated(x, y, 0.0);
+  glScaled(1.0, -1.0, 1.0);
+  sliderFont->renderText(text, cColorf(0.05f, 0.05f, 0.05f), 1.0, 1.0, 1.0, options);
+  glPopMatrix();
+}
+
+void renderSliderWindow() {
+  if (sliderWindow == NULL) {
+    return;
+  }
+  if (glfwWindowShouldClose(sliderWindow)) {
+    glfwDestroyWindow(sliderWindow);
+    sliderWindow = NULL;
+    glfwMakeContextCurrent(window);
+    return;
+  }
+
+  glfwMakeContextCurrent(sliderWindow);
+  glfwGetWindowSize(sliderWindow, &sliderWindowWidth, &sliderWindowHeight);
+  glViewport(0, 0, sliderWindowWidth, sliderWindowHeight);
+  glMatrixMode(GL_PROJECTION);
+  glLoadIdentity();
+  glOrtho(0, sliderWindowWidth, sliderWindowHeight, 0, -1, 1);
+  glMatrixMode(GL_MODELVIEW);
+  glLoadIdentity();
+  glDisable(GL_DEPTH_TEST);
+  glClearColor(0.94f, 0.94f, 0.94f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+
+  for (int i = 0; i < sliders.size(); i++) {
+    const SliderUI &slider = sliders[i];
+    double trackX;
+    double trackY;
+    getSliderLayout(i, trackX, trackY);
+    const double handleX = trackX + slider.normalizedValue() * SLIDER_WIDTH;
+
+    drawSliderText(slider.displayText(), trackX, trackY - 28);
+    drawRect(trackX, trackY - 4, SLIDER_WIDTH, 8, 0.28f, 0.28f, 0.28f);
+    drawRect(trackX, trackY - 4, handleX - trackX, 8, 0.05f, 0.35f, 0.90f);
+    drawRect(handleX - 7, trackY - 15, 14, 30, 0.02f, 0.22f, 0.65f);
+  }
+
+  updateSliderWindowTitle();
+  glfwSwapBuffers(sliderWindow);
+  glfwMakeContextCurrent(window);
+}
+
+bool handleSliderMousePress(double mouseX, double mouseY) {
+  for (int i = 0; i < sliders.size(); i++) {
+    if (!isMouseOverSlider(i, mouseX, mouseY)) {
+      continue;
+    }
+
+    sliders[i].dragging = true;
+    sliders[i].setNormalizedValue(getSliderNormalizedValueFromMouseX(i, mouseX));
+    updateSliderWindowTitle();
+    return true;
+  }
+  return false;
+}
+
+bool handleSliderMouseMotion(double mouseX, double mouseY) {
+  for (int i = 0; i < sliders.size(); i++) {
+    if (!sliders[i].dragging) {
+      continue;
+    }
+
+    sliders[i].setNormalizedValue(getSliderNormalizedValueFromMouseX(i, mouseX));
+    updateSliderWindowTitle();
+    return true;
+  }
+  return false;
+}
+
+bool handleSliderMouseRelease() {
+  for (int i = 0; i < sliders.size(); i++) {
+    if (!sliders[i].dragging) {
+      continue;
+    }
+
+    sliders[i].dragging = false;
+    return true;
+  }
+  return false;
+}
+
+void sliderWindowCursorPosCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  handleSliderMouseMotion(a_posX, a_posY);
+}
+
+void sliderWindowMouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action, int a_mods) {
+  if (a_button != GLFW_MOUSE_BUTTON_LEFT) {
+    return;
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  double x;
+  double y;
+  glfwGetCursorPos(a_window, &x, &y);
+
+  if (a_action == GLFW_PRESS) {
+    handleSliderMousePress(x, y);
+  } else if (a_action == GLFW_RELEASE) {
+    handleSliderMouseRelease();
+  }
 }

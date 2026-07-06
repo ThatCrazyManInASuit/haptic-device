@@ -81,7 +81,7 @@ def _resolve_calculator(spec):
 
         parts = spec.split(":")
 
-        task_name = "omol"
+        task_name = "oc20"
 
         if len(parts) > 1:
             task_name = parts[1]
