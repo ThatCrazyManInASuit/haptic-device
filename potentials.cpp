@@ -24,6 +24,10 @@
 
 #include <filesystem>
 
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+
 extern double centerCoords[3];
 
 namespace
@@ -52,6 +56,10 @@ namespace
         std::exit(1);
     }
 
+    // Only works on Linux/macOS: reads /proc/self/exe or resolves the executable
+    // path to determine the executable's directory.
+    std::string getExecutableDir();
+
     // Python is initialized lazily, only when the ASE calculator is first used.
     // We configure it to use the bundled virtual environment so ASE and its
     // dependencies are found correctly regardless of the system Python.
@@ -64,9 +72,24 @@ namespace
             config.use_environment = 1;
 
             // Point to the venv Python so sys.path picks up the right site-packages.
-            config.program_name = Py_DecodeLocale(
-                "./haptic-device/uma_env/bin/python",
-                NULL);
+            // Resolved relative to the executable (not the current working
+            // directory) so this works regardless of where the binary is launched
+            // from, e.g. the launcher's own directory.
+            std::filesystem::path venvPython;
+            std::string executableDir = getExecutableDir();
+            if (!executableDir.empty()) {
+                venvPython = std::filesystem::path(executableDir) / ".." / ".." /
+                             "haptic-device" / "uma_env" / "bin" / "python";
+                // Normalize lexically only -- do NOT resolve symlinks here.
+                // uma_env/bin/python is itself a symlink to the base
+                // interpreter, and CPython locates the venv by finding
+                // pyvenv.cfg next to that symlink; canonicalizing away the
+                // symlink makes it look like the system Python instead.
+                venvPython = venvPython.lexically_normal();
+            } else {
+                venvPython = "./haptic-device/uma_env/bin/python";
+            }
+            config.program_name = Py_DecodeLocale(venvPython.string().c_str(), NULL);
 
             config.module_search_paths_set = 0;
 
@@ -285,18 +308,27 @@ namespace
         return parsedKwargs;
     }
 
-    // Only works on Linux: reads /proc/self/exe to determine the executable's directory.
+    // Determines the executable's directory so Python/module paths can be
+    // resolved regardless of the process's current working directory.
     std::string getExecutableDir()
     {
         char buffer[4096];
+#if defined(__APPLE__)
+        uint32_t size = sizeof(buffer);
+        if (_NSGetExecutablePath(buffer, &size) != 0)
+        {
+            return "";
+        }
+        std::string executablePath(buffer);
+#else
         ssize_t length = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
         if (length <= 0)
         {
             return "";
         }
-
         buffer[length] = '\0';
         std::string executablePath(buffer);
+#endif
         size_t separator = executablePath.find_last_of('/');
         if (separator == std::string::npos)
         {

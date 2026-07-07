@@ -866,34 +866,6 @@ void placeAtomsAse(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, c
   }
 }
 
-static double parseShellRadiusAngstroms(int argc, char *argv[]) {
-  const double defaultRadiusAngstroms = 5.0;
-  if (argc <= 4) {
-    return defaultRadiusAngstroms;
-  }
-
-  string potential = argv[3];
-  for (char &c : potential) {
-    c = tolower(c);
-  }
-
-  int radiusIndex = (potential == "ase" || potential == "a") ? 5 : 4;
-  if (argc <= radiusIndex) {
-    return defaultRadiusAngstroms;
-  }
-
-  char *end = NULL;
-  double radiusAngstroms = strtod(argv[radiusIndex], &end);
-  if (end == argv[radiusIndex] || radiusAngstroms <= 0.0) {
-    cerr << "Warning: invalid shell radius '" << argv[radiusIndex]
-         << "'. Defaulting to " << defaultRadiusAngstroms << " angstroms." << endl;
-    return defaultRadiusAngstroms;
-  }
-
-  return radiusAngstroms;
-}
-
-
 void placeAtoms(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int argc, char *argv[]) {
   cTexture2dPtr texture = cTexture2d::create(); // create texture
   // load texture file
@@ -913,7 +885,9 @@ void placeAtoms(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int 
       k = 0;
     }
     int numSpheres = k + 1;
-    double shellRadiusAngstroms = parseShellRadiusAngstroms(argc, argv);
+    // argv[4]/argv[5] are always the ASE spec and PBC mode (see main()), never
+    // a radius, so there is no CLI slot to override this default.
+    const double shellRadiusAngstroms = 5.0;
     vector<cVector3d> positions = generateShellPositions(k, shellRadiusAngstroms);
     for (int i = 0; i < numSpheres; i++) {
       // initialize atom with texture and atomic number of 1 (hydrogen)
