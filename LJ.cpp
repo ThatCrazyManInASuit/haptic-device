@@ -769,10 +769,21 @@ void initializeHapticDevice() {
 }
 
 
-void placeAtomsAse(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, cTexture2dPtr texture, char *argv[]) {
+void placeAtomsAse(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, cTexture2dPtr texture, int argc, char *argv[]) {
   AseStructureData structure;
+  // Optional repeat factors: argv[6]=x, argv[7]=y, argv[8]=z. Each defaults to
+  // 1 if not given, and values < 1 are ignored (they would zero out the cell).
+  std::array<int, 3> repeat = {1, 1, 1};
+  for (int i = 0; i < 3; i++) {
+    if (argc > 6 + i) {
+      int value = atoi(argv[6 + i]);
+      if (value > 0) {
+        repeat[i] = value;
+      }
+    }
+  }
   try {
-    structure = loadAseStructure(argv[2]);
+    structure = loadAseStructure(argv[2], repeat);
   } catch (const std::exception &ex) {
     close();
     throw std::runtime_error(ex.what());
@@ -872,7 +883,7 @@ void placeAtoms(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int 
       }
     }
   } else // read in specified file
-    placeAtomsAse(aseCell, asePbc, texture, argv);
+    placeAtomsAse(aseCell, asePbc, texture, argc, argv);
 
   // Done reading any sort of info.
   for (int i = 0; i < spheres.size(); i++) {

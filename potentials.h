@@ -14,7 +14,8 @@ struct AseStructureData {
     std::array<int, 3> pbc = {0, 0, 0};
 };
 
-AseStructureData loadAseStructure(const std::string& filename);
+AseStructureData loadAseStructure(const std::string& filename,
+                                  const std::array<int, 3>& repeat = {1, 1, 1});
 
 ////// Base class for all calculators
 class Calculator {
