@@ -12,7 +12,8 @@ struct AseStructureData {
     std::vector<int> atomicNumbers;
     std::array<double, 9> cell = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     std::array<int, 3> pbc = {0, 0, 0};
-};
+    std::vector<double> radii;
+  };
 
 AseStructureData loadAseStructure(const std::string& filename);
 

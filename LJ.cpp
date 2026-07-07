@@ -355,9 +355,17 @@ void initializeHapticDevice();
 void initializeAtomLabels();
 void addDebugLabel(std::string text);
 
+
 void placeAtoms(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int argc, char *argv[]);
 Atom* initializeAtom(cTexture2dPtr texture, int atomicNumber);
 void initializeAtomPosition(Atom *new_atom, double spawnRadiusWorldUnits);
+Atom* initializeAtom(cTexture2dPtr texture, int atomicNumber, double radius);
+vector<cVector3d> generateShellPositions(int k, double radiusAngstroms);
+vector<cVector3d> PolyhedronCords(int k, double radius);
+vector<cVector3d> ThomsonCords(int k, double radius);
+vector<cVector3d> FibonacciCords(int k, double radius);
+
+void initializeAtomPosition(Atom *new_atom);
 void initializeCalculator(int argc, char *argv[], std::array<double, 9> aseCell,
     std::array<int, 3> asePbc);
 void initializeLabels();
@@ -785,13 +793,14 @@ void placeAtomsAse(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, c
   }
   const std::vector<std::array<double, 3>> &positions = structure.positions;
   const std::vector<int> &startingAtomicNrs = structure.atomicNumbers;
+  const std::vector<double> &startingRadii = structure.radii;
   // comment out below for no pbc
   aseCell = structure.cell;
   asePbc = structure.pbc;
   const int nAtoms = static_cast<int>(positions.size());
 
   for (int i = 0; i < nAtoms; i++) {
-    Atom *newAtom = initializeAtom(texture, startingAtomicNrs[i]); // Create atom pointer
+    Atom *newAtom = initializeAtom(texture, startingAtomicNrs[i], startingRadii[i] * 0.02); // Create atom pointer`
     // Set the positions of all atoms
     if (i == 0) {
       // make very first atom the current atom
@@ -818,6 +827,34 @@ void placeAtomsAse(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, c
     }
   }
 }
+
+static double parseShellRadiusAngstroms(int argc, char *argv[]) {
+  const double defaultRadiusAngstroms = 5.0;
+  if (argc <= 4) {
+    return defaultRadiusAngstroms;
+  }
+
+  string potential = argv[3];
+  for (char &c : potential) {
+    c = tolower(c);
+  }
+
+  int radiusIndex = (potential == "ase" || potential == "a") ? 5 : 4;
+  if (argc <= radiusIndex) {
+    return defaultRadiusAngstroms;
+  }
+
+  char *end = NULL;
+  double radiusAngstroms = strtod(argv[radiusIndex], &end);
+  if (end == argv[radiusIndex] || radiusAngstroms <= 0.0) {
+    cerr << "Warning: invalid shell radius '" << argv[radiusIndex]
+         << "'. Defaulting to " << defaultRadiusAngstroms << " angstroms." << endl;
+    return defaultRadiusAngstroms;
+  }
+
+  return radiusAngstroms;
+}
+
 
 void placeAtoms(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int argc, char *argv[]) {
   cTexture2dPtr texture = cTexture2d::create(); // create texture
@@ -853,6 +890,21 @@ void placeAtoms(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int 
         new_atom->setCurrent(true); // set the first sphere to the current
       } else {
         initializeAtomPosition(new_atom, spawnRadiusWorldUnits); // set the position of the atom
+    // k is the number of atoms surrounding the current center atom.
+    int k = argc > 2 ? atoi(argv[2]) : 5;
+    if (k < 0) {
+      k = 0;
+    }
+    int numSpheres = k + 1;
+    double shellRadiusAngstroms = parseShellRadiusAngstroms(argc, argv);
+    vector<cVector3d> positions = generateShellPositions(k, shellRadiusAngstroms);
+    for (int i = 0; i < numSpheres; i++) {
+      // initialize atom with texture and atomic number of 1 (hydrogen)
+      Atom *new_atom = initializeAtom(texture, 1, SPHERE_RADIUS); 
+      if (i == 0) {
+        new_atom->setCurrent(true); // set the first sphere to the current
+      } else {
+        new_atom->setLocalPos(positions[i - 1]);
       }
     }
   } else // read in specified file
@@ -864,8 +916,8 @@ void placeAtoms(std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int 
   }
 }
 
-Atom* initializeAtom(cTexture2dPtr texture, int atomicNumber) {
-  Atom *new_atom = new Atom(SPHERE_RADIUS, atomicNumber); // create a atom and define its radius
+Atom* initializeAtom(cTexture2dPtr texture, int atomicNumber, double radius = SPHERE_RADIUS) {
+  Atom *new_atom = new Atom(radius, atomicNumber); // create a atom and define its radius
   spheres.push_back(new_atom); // store pointer to atom
   world->addChild(new_atom); // add atom to world
   world->addChild(new_atom->getVelVector()); // add line to world
@@ -878,6 +930,176 @@ Atom* initializeAtom(cTexture2dPtr texture, int atomicNumber) {
 }
 
 void initializeAtomPosition(Atom *new_atom, double spawnRadiusWorldUnits) {
+vector<cVector3d> generateShellPositions(int k, double radiusAngstroms) {
+  const double radius = radiusAngstroms * DIST_SCALE;
+
+  if (k <= 0) {
+    return vector<cVector3d>();
+  }
+
+  if ((k == 4) || (k == 6) || (k == 8) || (k == 12) || (k == 20)) {
+    return PolyhedronCords(k, radius);
+    //
+  } else if (k <= 100) {
+    return ThomsonCords(k, radius);
+  }
+
+  return FibonacciCords(k, radius);
+}
+
+static cVector3d scaledToRadius(const cVector3d &position, double radius) {
+  double length = position.length();
+  if (length <= 1e-12) {
+    return cVector3d(0.0, 0.0, radius);
+  }
+  return position *(radius / length);
+}
+
+static void addScaledVertex(vector<cVector3d> &positions, double x, double y, double z, double radius) {
+  positions.push_back(scaledToRadius(cVector3d(x, y, z), radius));
+}
+
+vector<cVector3d> PolyhedronCords(int k, double radius) {
+  vector<cVector3d> positions;
+  positions.reserve(k);
+  const double phi = (1.0 + sqrt(5.0)) / 2.0;
+  const double invPhi = 1.0 / phi;
+
+  if (k == 4) {
+    addScaledVertex(positions,  1.0,  1.0,  1.0, radius);
+    addScaledVertex(positions,  1.0, -1.0, -1.0, radius);
+    addScaledVertex(positions, -1.0,  1.0, -1.0, radius);
+    addScaledVertex(positions, -1.0, -1.0,  1.0, radius);
+  } else if (k == 6) {
+    addScaledVertex(positions,  1.0,  0.0,  0.0, radius);
+    addScaledVertex(positions, -1.0,  0.0,  0.0, radius);
+    addScaledVertex(positions,  0.0,  1.0,  0.0, radius);
+    addScaledVertex(positions,  0.0, -1.0,  0.0, radius);
+    addScaledVertex(positions,  0.0,  0.0,  1.0, radius);
+    addScaledVertex(positions,  0.0,  0.0, -1.0, radius);
+  } else if (k == 8) {
+    //test, might have to hardcode postiitons if this doesnt work
+    for (int x = -1; x <= 1; x += 2) {
+      for (int y = -1; y <= 1; y += 2) {
+        for (int z = -1; z <= 1; z += 2) {
+          addScaledVertex(positions, x, y, z, radius);
+        }
+      }
+    }
+  } else if (k == 12) {
+    for (int y = -1; y <= 1; y += 2) {
+      for (int z = -1; z <= 1; z += 2) {
+        addScaledVertex(positions, 0.0, y, z * phi, radius);
+      }
+    }
+    for (int x = -1; x <= 1; x += 2) {
+      for (int y = -1; y <= 1; y += 2) {
+        addScaledVertex(positions, x, y * phi, 0.0, radius);
+      }
+    }
+    for (int x = -1; x <= 1; x += 2) {
+      for (int z = -1; z <= 1; z += 2) {
+        addScaledVertex(positions, x * phi, 0.0, z, radius);
+      }
+    }
+  } else if (k == 20) {
+    for (int x = -1; x <= 1; x += 2) {
+      for (int y = -1; y <= 1; y += 2) {
+        for (int z = -1; z <= 1; z += 2) {
+          addScaledVertex(positions, x, y, z, radius);
+        }
+      }
+    }
+    for (int y = -1; y <= 1; y += 2) {
+      for (int z = -1; z <= 1; z += 2) {
+        addScaledVertex(positions, 0.0, y * invPhi, z * phi, radius);
+      }
+    }
+    for (int x = -1; x <= 1; x += 2) {
+      for (int y = -1; y <= 1; y += 2) {
+        addScaledVertex(positions, x * invPhi, y * phi, 0.0, radius);
+      }
+    }
+    for (int x = -1; x <= 1; x += 2) {
+      for (int z = -1; z <= 1; z += 2) {
+        addScaledVertex(positions, x * phi, 0.0, z * invPhi, radius);
+      }
+    }
+  }
+
+  return positions;
+}
+
+vector<cVector3d> ThomsonCords(int k, double radius) {
+  vector<cVector3d> positions = FibonacciCords(k, radius);
+  if (k <= 1) {
+    return positions;
+  }
+
+  const int iterations = 600;
+  const double baseStep = radius * 0.04;
+
+  for (int iter = 0; iter < iterations; iter++) {
+    vector<cVector3d> forces(k, cVector3d(0.0, 0.0, 0.0));
+
+    for (int i = 0; i < k; i++) {
+      for (int j = i + 1; j < k; j++) {
+        cVector3d diff = positions[i] - positions[j];
+        double dist = diff.length();
+        if (dist <= 1e-9) {
+          continue;
+        }
+
+        cVector3d force = diff * (1.0 / (dist * dist * dist));
+        forces[i] += force;
+        forces[j] -= force;
+      }
+    }
+
+    double step = baseStep * (1.0 - (0.75 * iter / iterations));
+    for (int i = 0; i < k; i++) {
+      cVector3d normal = scaledToRadius(positions[i], 1.0);
+      double radialForce = forces[i].x() * normal.x()
+                         + forces[i].y() * normal.y()
+                         + forces[i].z() * normal.z();
+      cVector3d tangentForce = forces[i] - normal * radialForce;
+      positions[i] = scaledToRadius(positions[i] + tangentForce * step, radius);
+    }
+  }
+
+  return positions;
+}
+
+vector<cVector3d> FibonacciCords(int k, double radius) {
+  vector<cVector3d> positions;
+  positions.reserve(k);
+
+  if (k <= 0) {
+    return positions;
+  }
+  if (k == 1) {
+    positions.push_back(cVector3d(0.0, 0.0, radius));
+    return positions;
+  }
+
+  const double goldenAngle = M_PI * (3.0 - sqrt(5.0));
+
+  for (int i = 0; i<k; i++) {
+    double y = 1.0 - (2.0 * i) / (k - 1);
+    double r = sqrt(1.0 - y * y);
+    double theta = goldenAngle * i;
+
+    positions.push_back(cVector3d(
+      radius*cos(theta)*r,
+      radius*y,
+      radius*sin(theta)*r
+    ));
+  }
+
+  return positions;
+}
+
+void initializeAtomPosition(Atom *new_atom) {
   bool inside_atom = true;
   auto iter{0};
   while (inside_atom) {
@@ -1528,6 +1750,7 @@ void readButtons(bool buttons[4], bool buttonReset[4]) {
     if (buttons[i]) {
       if (buttonReset[i]) {
         switch (i) {
+          
           case 1:
             switchCurrentAtom();
             break;
@@ -1583,8 +1806,6 @@ cVector3d forceModeUpdate(Atom *current, cVector3d position, const double timeIn
   const double K_CURRENT_DAMP = K_HAPTIC_DAMPER;
 
   cVector3d positionErr = position - current->getLocalPos();
-
-  // Calculate velocity for damping (using previous position)
   cVector3d currentPrevPos = prevPositions[currentIndex];
   cVector3d velocity = (current->getLocalPos() - currentPrevPos) / timeInterval;
 
@@ -1615,9 +1836,14 @@ cVector3d prevForces[MAX_FORCE_HISTORY];
 int prevForcesIndex = 0;
 
 double getStrongestScalarProj(cVector3d v) {
+  const double length = v.length();
+  if (length <= 1e-9) {
+    return 0.0;
+  }
+
   double strongest = 0;
   for (int i = 0; i < MAX_FORCE_HISTORY; i++) {
-    double scalarProj = v.dot(prevForces[i]) / v.length();
+    double scalarProj = v.dot(prevForces[i]) / length;
     if (strongest < scalarProj) {
       strongest = scalarProj;
     }
@@ -1645,8 +1871,12 @@ std::optional<cVector3d> updateStandbyModeSimulating(Atom *current, cVector3d& p
     prevPositions[currentIndex] = temp;
 
     double distFromCenter = position.length() - finalErr;
-    position.normalize();
-    return getStrongestScalarProj(-position) * -position * (distFromCenter / HAPTIC_RADIUS) * K_HAPTIC;
+    if (position.length() <= 1e-9) {
+      return cVector3d(0, 0, 0);
+    }
+
+    cVector3d direction = cNormalize(position);
+    return getStrongestScalarProj(-direction) * -direction * (distFromCenter / HAPTIC_RADIUS) * K_HAPTIC;
   }
   simulating = false;
   return std::nullopt;
@@ -1819,7 +2049,7 @@ cVector3d stepSimulation(const cVector3d &requestedPosition, const double timeIn
         cVector3d x_curr = atom->getLocalPos();
         cVector3d new_position = getNewAtomPosition(atom, prevPositions[i], timeInterval);
         prevPositions[i] = x_curr;
-        applyBoundaryConditions(x_curr);
+        applyBoundaryConditions(new_position);
         atom->setLocalPos(new_position);
         cVector3d v = (new_position - prevPositions[i]) / timeInterval;
         atom->setVelocity(v);
@@ -2046,6 +2276,22 @@ void getSliderLayout(int sliderIndex, double &trackX, double &trackY) {
   trackY = SLIDER_TOP + sliderIndex * SLIDER_ROW_SPACING;
 }
 
+void getSliderMousePosition(GLFWwindow *a_window, double inputX, double inputY,
+                            double &mouseX, double &mouseY) {
+  int windowWidth;
+  int windowHeight;
+  glfwGetWindowSize(a_window, &windowWidth, &windowHeight);
+
+  if (windowWidth <= 0 || windowHeight <= 0) {
+    mouseX = inputX;
+    mouseY = inputY;
+    return;
+  }
+
+  mouseX = inputX * sliderWindowWidth / windowWidth;
+  mouseY = inputY * sliderWindowHeight / windowHeight;
+}
+
 double getSliderNormalizedValueFromMouseX(int sliderIndex, double mouseX) {
   double trackX;
   double trackY;
@@ -2127,8 +2373,11 @@ void renderSliderWindow() {
   }
 
   glfwMakeContextCurrent(sliderWindow);
+  int framebufferWidth;
+  int framebufferHeight;
   glfwGetWindowSize(sliderWindow, &sliderWindowWidth, &sliderWindowHeight);
-  glViewport(0, 0, sliderWindowWidth, sliderWindowHeight);
+  glfwGetFramebufferSize(sliderWindow, &framebufferWidth, &framebufferHeight);
+  glViewport(0, 0, framebufferWidth, framebufferHeight);
   glMatrixMode(GL_PROJECTION);
   glLoadIdentity();
   glOrtho(0, sliderWindowWidth, sliderWindowHeight, 0, -1, 1);
@@ -2197,7 +2446,10 @@ bool handleSliderMouseRelease() {
 
 void sliderWindowCursorPosCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  handleSliderMouseMotion(a_posX, a_posY);
+  double mouseX;
+  double mouseY;
+  getSliderMousePosition(a_window, a_posX, a_posY, mouseX, mouseY);
+  handleSliderMouseMotion(mouseX, mouseY);
 }
 
 void sliderWindowMouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action, int a_mods) {
@@ -2209,6 +2461,7 @@ void sliderWindowMouseButtonCallback(GLFWwindow *a_window, int a_button, int a_a
   double x;
   double y;
   glfwGetCursorPos(a_window, &x, &y);
+  getSliderMousePosition(a_window, x, y, x, y);
 
   if (a_action == GLFW_PRESS) {
     handleSliderMousePress(x, y);

@@ -406,6 +406,7 @@ namespace
             calcObject = PyObject_Call(calcClass, calcArgs, calcKwargs);
 
             Py_DECREF(calcKwargs);
+            calcKwargs = nullptr;
             Py_DECREF(calcClass);
             Py_DECREF(calcModule);
 
@@ -791,6 +792,19 @@ AseStructureData loadAseStructure(const std::string &filename)
         }
         structure.atomicNumbers.push_back(atomicNumber);
     }
+    structure.radii.reserve(static_cast<size_t>(atomCount));
+
+    for (int atomIndex = 0; atomIndex < atomCount; ++atomIndex)
+    {
+        double radius = 0.0;
+
+        if (!(stream >> radius))
+        {
+            throw std::runtime_error("ASE structure loader returned invalid radii.");
+        }
+
+        structure.radii.push_back(radius);
+    }
 
     for (size_t index = 0; index < structure.cell.size(); ++index)
     {
@@ -811,6 +825,10 @@ AseStructureData loadAseStructure(const std::string &filename)
     if (structure.positions.size() != structure.atomicNumbers.size())
     {
         throw std::runtime_error("ASE returned mismatched positions and atomic numbers.");
+    }
+    if (structure.positions.size() != structure.radii.size())
+    {
+        throw std::runtime_error("ASE returned mismatched positions and radii.");
     }
 
     return structure;
