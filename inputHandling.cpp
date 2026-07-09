@@ -88,6 +88,7 @@ static void selectAtomsInBox() {
   const double bottom = std::min(selectionStartY, selectionCurrentY);
   const double top = std::max(selectionStartY, selectionCurrentY);
 
+  bool anySelected = false;
   for (Atom *atom : spheres) {
     double screenX = 0.0;
     double screenY = 0.0;
@@ -95,6 +96,13 @@ static void selectAtomsInBox() {
                   screenX >= left && screenX <= right &&
                   screenY >= bottom && screenY <= top;
     atom->setSelected(inside);
+    anySelected = anySelected || inside;
+  }
+
+  if (anySelected) {
+    for (Atom *atom : spheres) {
+      atom->setCurrent(false);
+    }
   }
 }
 
