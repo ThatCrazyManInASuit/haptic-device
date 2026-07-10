@@ -107,8 +107,10 @@ extern std::atomic<double> displayedPotentialEnergy;
 // the no-device keyboard fallback loop; changeable at runtime
 extern std::atomic<double> simulationTimeStep;
 
-// smallest and largest time step (seconds) accepted from launch/IPC input
-constexpr double MIN_SIMULATION_TIME_STEP = 0.0001;
+// smallest and largest time step (seconds) accepted from launch/IPC input.
+// The minimum is intentionally very small so the Time Step slider can crawl the
+// simulation for close inspection; a tiny timestep is more accurate, just slow.
+constexpr double MIN_SIMULATION_TIME_STEP = 0.00001;
 constexpr double MAX_SIMULATION_TIME_STEP = 0.005;
 
 // validates and applies a new simulation time step; returns false (leaving
