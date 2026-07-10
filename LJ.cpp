@@ -589,8 +589,6 @@ int runApplication(int argc, char *argv[]) {
   }
   startIpcServer(ipcPort);
 
-
-  initializeHelpPanel();
   initializeSliderUI();
   
 
@@ -1386,16 +1384,16 @@ double getMean(vector<int> v) {
 vector<int> frequencies;
 void runGraphicsLoop() {
   framebufferSizeCallback(window, width, height); // initialize framebuffer size
-  cPrecisionClock keyboardModeClock;
-  keyboardModeClock.reset();
-  keyboardModeClock.start();
   // main graphic loop
   while (!glfwWindowShouldClose(window)) {
     glfwGetFramebufferSize(window, &width, &height); // framebuffer size in pixels (HiDPI-aware)
     if (!hapticDevice) {
-      keyboardModeClock.stop();
-      double timeInterval = cMin(simulationTimeStep.load(), keyboardModeClock.getCurrentTimeSeconds());
-      keyboardModeClock.start(true);
+      // Advance the sim by the slider-controlled fixed timestep. This used to be
+      // min()'d with the real inter-frame time, which capped the timestep at the
+      // frame duration on fast machines - so most of the Time Step slider's range
+      // produced no visible change. Using the fixed value directly makes the whole
+      // slider range (including the new slower minimum) actually take effect.
+      double timeInterval = simulationTimeStep.load();
       freqCounterHaptics.signal(1);
       initializeprevPositions();
       stepSimulation(cVector3d(0.0, 0.0, 0.0), timeInterval, false);
@@ -1485,26 +1483,33 @@ void updateLabels() {
   // window). Row spacing shrinks if needed so every hotkey stays on-screen
   // instead of being pushed below y=0 and disappearing on shorter windows.
   const double topMargin = 10.0;
-  const double headerReserve = 60.0;
+  const double headerReserve = 60.0;   // vertical space reserved for the header
+  const double bottomMargin = 20.0;    // keep the last row off the panel's edge
   const double maxHelpPanelHeight = 500.0;
   const double defaultRowSpacing = 25.0;
 
+  // Size and place the panel first. Its height is capped at maxHelpPanelHeight,
+  // so the rows must be laid out against the PANEL height, not the raw window
+  // height, or the bottom rows spill out below the panel on tall windows.
+  double helpPanelHeight = cMin(maxHelpPanelHeight, cMax(0.0, (double)height - topMargin));
+  helpPanel->setSize(520, helpPanelHeight);
+  double panelTop = height - topMargin;
+  helpPanel->setLocalPos(width - 550, panelTop - helpPanelHeight);
+  helpHeader->setLocalPos(width - 490, panelTop - headerReserve + 20);
+
+  // Shrink row spacing if the rows would not otherwise fit inside the panel
+  // (between the header at the top and a small margin above the bottom edge).
   int numHotkeyRows = static_cast<int>(hotkeyKeys.size());
   double rowSpacing = defaultRowSpacing;
   if (numHotkeyRows > 1) {
-    double availableRowSpace = height - topMargin - headerReserve;
+    double availableRowSpace = helpPanelHeight - headerReserve - bottomMargin;
     double neededRowSpace = defaultRowSpacing * (numHotkeyRows - 1);
     if (availableRowSpace > 0 && availableRowSpace < neededRowSpace) {
       rowSpacing = availableRowSpace / (numHotkeyRows - 1);
     }
   }
 
-  double helpPanelHeight = cMin(maxHelpPanelHeight, cMax(0.0, (double)height - topMargin));
-  helpPanel->setSize(520, helpPanelHeight);
-  helpPanel->setLocalPos(width - 550, height - topMargin - helpPanelHeight);
-  helpHeader->setLocalPos(width - 490, height - topMargin - headerReserve + 20);
-
-  double rowStartY = height - topMargin - headerReserve;
+  double rowStartY = panelTop - headerReserve;
   for (int i = 0; i < hotkeyKeys.size(); i++) {
     cLabel *tempKeyLabel = hotkeyKeys[i];
     cLabel *tempFuncLabel = hotkeyFunctions[i];
@@ -2206,11 +2211,11 @@ void updateHaptics(void) {
     
     readButtons(buttons, buttonReset);
 
-    // time step the simulation runs at in seconds - shorter timesteps are more accurate, but result in slower frames
-    // .001 is a good default for uma simulations; changeable at launch via
-    // HAPTIC_DEVICE_TIME_STEP and live via the IPC "set timestep" command
-    // const double DT = simulationTimeStep.load();
-    cVector3d force = stepSimulation(position, 0.01, true);
+    // time step the simulation runs at in seconds - shorter timesteps are more
+    // accurate but advance the sim more slowly. Driven by the Time Step slider
+    // (and HAPTIC_DEVICE_TIME_STEP / the IPC "set timestep" command) so the
+    // slider takes effect in haptic mode too, instead of a hardcoded value.
+    cVector3d force = stepSimulation(position, simulationTimeStep.load(), true);
 
     /////////////////////////////////////////////////////////////////////////
     // APPLY FORCES
@@ -2300,7 +2305,7 @@ vector<string> sliderOrder = {"time_step", "temperature"};
 // SLIDER UI STEP 1B: Add each new slider's configuration here.
 // sliderConfigs[id] = {display name, min, max, default, units, display scale, display digits}
 unordered_map<string, SliderConfig> sliderConfigs = {
-  {"time_step", {"Time Step", 0.0001, 0.0020, 0.0010, "ms", 1000.0, 2}},
+  {"time_step", {"Time Step", 0.00001, 0.0020, 0.0010, "ms", 1000.0, 3}},
   {"temperature", {"Temperature", 0.000, 15.000, 0.000, "kT", 1.0, 5}}
 };
 
