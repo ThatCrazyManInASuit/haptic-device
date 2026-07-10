@@ -160,37 +160,8 @@ const double BOND_DISTANCE_THRESHOLD = SPHERE_RADIUS * 5.0;
 const double ATOM_MOVE_STEP = SPHERE_RADIUS;
 
 // boundary conditions
-const double BOUNDARY_LIMIT = .5;
-const cVector3d northPlanePos = cVector3d(0, BOUNDARY_LIMIT, 0);
-const cVector3d northPlaneP1 = cVector3d(1, BOUNDARY_LIMIT, 0);
-const cVector3d northPlaneP2 = cVector3d(1, BOUNDARY_LIMIT, 1);
-const cVector3d northPlaneNorm =
-    cComputeSurfaceNormal(northPlanePos, northPlaneP1, northPlaneP2);
-const cVector3d southPlanePos = cVector3d(0, -BOUNDARY_LIMIT, 0);
-const cVector3d southPlaneP1 = cVector3d(1, -BOUNDARY_LIMIT, 0);
-const cVector3d southPlaneP2 = cVector3d(1, -BOUNDARY_LIMIT, 1);
-const cVector3d southPlaneNorm =
-    cComputeSurfaceNormal(southPlanePos, southPlaneP1, southPlaneP2);
-const cVector3d eastPlanePos = cVector3d(BOUNDARY_LIMIT, 0, 0);
-const cVector3d eastPlaneP1 = cVector3d(BOUNDARY_LIMIT, 1, 0);
-const cVector3d eastPlaneP2 = cVector3d(BOUNDARY_LIMIT, 1, 1);
-const cVector3d eastPlaneNorm =
-    cComputeSurfaceNormal(eastPlanePos, eastPlaneP1, eastPlaneP2);
-const cVector3d westPlanePos = cVector3d(-BOUNDARY_LIMIT, 0, 0);
-const cVector3d westPlaneP1 = cVector3d(-BOUNDARY_LIMIT, 1, 0);
-const cVector3d westPlaneP2 = cVector3d(-BOUNDARY_LIMIT, 1, 1);
-const cVector3d westPlaneNorm =
-    cComputeSurfaceNormal(westPlanePos, westPlaneP1, westPlaneP2);
-const cVector3d forwardPlanePos = cVector3d(0, 0, BOUNDARY_LIMIT);
-const cVector3d forwardPlaneP1 = cVector3d(0, 1, BOUNDARY_LIMIT);
-const cVector3d forwardPlaneP2 = cVector3d(1, 1, BOUNDARY_LIMIT);
-const cVector3d forwardPlaneNorm =
-    cComputeSurfaceNormal(forwardPlanePos, forwardPlaneP1, forwardPlaneP2);
-const cVector3d backPlanePos = cVector3d(0, 0, -BOUNDARY_LIMIT);
-const cVector3d backPlaneP1 = cVector3d(0, 1, -BOUNDARY_LIMIT);
-const cVector3d backPlaneP2 = cVector3d(1, 1, -BOUNDARY_LIMIT);
-const cVector3d backPlaneNorm =
-    cComputeSurfaceNormal(backPlanePos, backPlaneP1, backPlaneP2);
+const double BOUNDARY_LIMIT = .01;
+const double CAMERA_BOUNDARY_SCALE = 0.35;
 
 //------------------------------------------------------------------------------
 // DECLARED VARIABLES
@@ -1787,17 +1758,102 @@ void readButtons(bool buttons[4], bool buttonReset[4]) {
 
 
 
-void applyBoundaryConditions(cVector3d &x_curr) {
-  applyDavidBoundaryConditions(x_curr, x_curr);
-  applySeanBoundaryConditions(
-      x_curr, x_curr, x_curr,
+double getDynamicBoundaryLimit() {
+  if (!camera || width <= 0 || height <= 0) {
+    return BOUNDARY_LIMIT;
+  }
+
+  const double aspect = static_cast<double>(width) / static_cast<double>(height);
+  const double zoomDistance = camera->getSphericalRadius();
+  const double safeDistance = (zoomDistance > 1e-6) ? zoomDistance : 0.1;
+  const double halfHeight = safeDistance * tan(camera->getFieldViewAngleRad() * 0.5) * CAMERA_BOUNDARY_SCALE;
+  const double halfWidth = halfHeight * aspect;
+  return (halfWidth > halfHeight) ? halfWidth : halfHeight;
+}
+
+void getCameraAlignedBoundaryPlanes(cVector3d &northPlanePos,
+                                   cVector3d &northPlaneNorm,
+                                   cVector3d &southPlanePos,
+                                   cVector3d &southPlaneNorm,
+                                   cVector3d &eastPlanePos,
+                                   cVector3d &eastPlaneNorm,
+                                   cVector3d &westPlanePos,
+                                   cVector3d &westPlaneNorm,
+                                   cVector3d &forwardPlanePos,
+                                   cVector3d &forwardPlaneNorm,
+                                   cVector3d &backPlanePos,
+                                   cVector3d &backPlaneNorm,
+                                   double &boundaryLimit) {
+  boundaryLimit = getDynamicBoundaryLimit();
+
+  const cVector3d focusPoint(0.0, 0.0, 0.0);
+  if (!camera) {
+    northPlanePos = cVector3d(0, boundaryLimit, 0);
+    northPlaneNorm = cVector3d(0, 1, 0);
+    southPlanePos = cVector3d(0, -boundaryLimit, 0);
+    southPlaneNorm = cVector3d(0, -1, 0);
+    eastPlanePos = cVector3d(boundaryLimit, 0, 0);
+    eastPlaneNorm = cVector3d(1, 0, 0);
+    westPlanePos = cVector3d(-boundaryLimit, 0, 0);
+    westPlaneNorm = cVector3d(-1, 0, 0);
+    forwardPlanePos = cVector3d(0, 0, boundaryLimit);
+    forwardPlaneNorm = cVector3d(0, 0, 1);
+    backPlanePos = cVector3d(0, 0, -boundaryLimit);
+    backPlaneNorm = cVector3d(0, 0, -1);
+    return;
+  }
+
+  const cVector3d camRight = camera->getRightVector();
+  const cVector3d camUp = camera->getUpVector();
+  const cVector3d camLook = camera->getLookVector();
+
+  northPlanePos = focusPoint + camUp * boundaryLimit;
+  northPlaneNorm = camUp;
+  southPlanePos = focusPoint - camUp * boundaryLimit;
+  southPlaneNorm = -camUp;
+  eastPlanePos = focusPoint + camRight * boundaryLimit;
+  eastPlaneNorm = camRight;
+  westPlanePos = focusPoint - camRight * boundaryLimit;
+  westPlaneNorm = -camRight;
+  forwardPlanePos = focusPoint + camLook * boundaryLimit;
+  forwardPlaneNorm = camLook;
+  backPlanePos = focusPoint - camLook * boundaryLimit;
+  backPlaneNorm = -camLook;
+}
+
+void applyBoundaryConditions(cVector3d &oldPosition, cVector3d &newPosition) {
+  cVector3d northPlanePos;
+  cVector3d northPlaneNorm;
+  cVector3d southPlanePos;
+  cVector3d southPlaneNorm;
+  cVector3d eastPlanePos;
+  cVector3d eastPlaneNorm;
+  cVector3d westPlanePos;
+  cVector3d westPlaneNorm;
+  cVector3d forwardPlanePos;
+  cVector3d forwardPlaneNorm;
+  cVector3d backPlanePos;
+  cVector3d backPlaneNorm;
+  double boundaryLimit = 0.0;
+
+  getCameraAlignedBoundaryPlanes(
       northPlanePos, northPlaneNorm,
       southPlanePos, southPlaneNorm,
       eastPlanePos, eastPlaneNorm,
       westPlanePos, westPlaneNorm,
       forwardPlanePos, forwardPlaneNorm,
       backPlanePos, backPlaneNorm,
-      BOUNDARY_LIMIT);
+      boundaryLimit);
+
+  applySeanBoundaryConditions(
+      oldPosition, newPosition, newPosition,
+      northPlanePos, northPlaneNorm,
+      southPlanePos, southPlaneNorm,
+      eastPlanePos, eastPlaneNorm,
+      westPlanePos, westPlaneNorm,
+      forwardPlanePos, forwardPlaneNorm,
+      backPlanePos, backPlaneNorm,
+      boundaryLimit);
 }
 
 cVector3d getNewAtomPosition(Atom *atom, cVector3d &prev_position, const double timeInterval) {
@@ -2067,12 +2123,12 @@ cVector3d stepSimulation(const cVector3d &requestedPosition, const double timeIn
     for (int i = 0; i < spheres.size(); i++) {
       Atom *atom = spheres[i];
       if (!atom->isCurrent() && !atom->isAnchor()) {
-        cVector3d x_curr = atom->getLocalPos();
+        cVector3d old_position = atom->getLocalPos();
         cVector3d new_position = getNewAtomPosition(atom, prevPositions[i], timeInterval);
-        prevPositions[i] = x_curr;
-        applyBoundaryConditions(new_position);
+        prevPositions[i] = old_position;
+        applyBoundaryConditions(old_position, new_position);
         atom->setLocalPos(new_position);
-        cVector3d v = (new_position - prevPositions[i]) / timeInterval;
+        cVector3d v = (new_position - old_position) / timeInterval;
         atom->setVelocity(v);
       }
     }

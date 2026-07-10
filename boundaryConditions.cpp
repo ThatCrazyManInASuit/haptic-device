@@ -58,66 +58,40 @@ void applySeanBoundaryConditions(chai3d::cVector3d &A,
                                 const chai3d::cVector3d &backPlaneNorm,
                                 const double boundaryLimit
                                 ) {
-    // holds intersect point/norm if an intersect is made
-    cVector3d intersectPoint;
-    cVector3d intersectNorm;
-    cVector3d tempPos;
-    cVector3d tempA;
-    tempA.copyfrom(A);
-    tempPos.copyfrom(spherePos);
+    const cVector3d originalA = A;
+    const cVector3d originalB = B;
+    const cVector3d delta = B - A;
+    if (delta.length() <= 1e-12) {
+        spherePos = A;
+        return;
+    }
 
-    // north plane
-    if (cIntersectionSegmentPlane(A, B, northPlanePos, northPlaneNorm, intersectPoint, intersectNorm) == 1) {
-        spherePos.zero();
-        spherePos.copyfrom(intersectPoint);
-        spherePos.y(spherePos.y() - (boundaryLimit * 2 - .01));
-        if (!checkBounds(spherePos, boundaryLimit)) {
-        spherePos.copyfrom(tempPos);
+    auto reflectAcrossPlane = [&](const cVector3d &planePos,
+                                  const cVector3d &planeNorm,
+                                  cVector3d &currentA,
+                                  cVector3d &currentB) {
+        const cVector3d normalizedNorm = cNormalize(planeNorm);
+        const double startDist = normalizedNorm.dot(currentA - planePos);
+        const double endDist = normalizedNorm.dot(currentB - planePos);
+
+        if (startDist <= 0.0 && endDist > 0.0) {
+            const double t = startDist / (startDist - endDist);
+            const cVector3d intersectPoint = currentA + (currentB - currentA) * t;
+            const cVector3d remaining = currentB - intersectPoint;
+            const cVector3d reflected = remaining - normalizedNorm * (2.0 * normalizedNorm.dot(remaining));
+            currentB = intersectPoint + reflected;
         }
-    }
-    // south plane
-    if (cIntersectionSegmentPlane(A, B, southPlanePos, southPlaneNorm, intersectPoint, intersectNorm) == 1) {
-        spherePos.zero();
-        spherePos.copyfrom(intersectPoint);
-        spherePos.y(spherePos.y() + (boundaryLimit * 2 - .01));
-        if (!checkBounds(spherePos, boundaryLimit)) {
-        spherePos.copyfrom(tempPos);
-        }
-    }
-    // east plane
-    if (cIntersectionSegmentPlane(A, B, eastPlanePos, eastPlaneNorm, intersectPoint, intersectNorm) == 1) {
-        spherePos.zero();
-        spherePos.copyfrom(intersectPoint);
-        spherePos.x(spherePos.x() - (boundaryLimit * 2 - .01));
-        if (!checkBounds(spherePos, boundaryLimit)) {
-        spherePos.copyfrom(tempPos);
-        }
-    }
-    // west plane
-    if (cIntersectionSegmentPlane(A, B, westPlanePos, westPlaneNorm, intersectPoint, intersectNorm) == 1) {
-        spherePos.zero();
-        spherePos.copyfrom(intersectPoint);
-        spherePos.x(spherePos.x() + (boundaryLimit * 2 - .01));
-        if (!checkBounds(spherePos, boundaryLimit)) {
-        spherePos.copyfrom(tempPos);
-        }
-    }
-    // forward plane
-    if (cIntersectionSegmentPlane(A, B, forwardPlanePos, forwardPlaneNorm, intersectPoint, intersectNorm) == 1) {
-        spherePos.zero();
-        spherePos.copyfrom(intersectPoint);
-        spherePos.z(spherePos.z() - (boundaryLimit * 2 - .01));
-        if (!checkBounds(spherePos, boundaryLimit)) {
-        spherePos.copyfrom(tempPos);
-        }
-    }
-    // back plane
-    if (cIntersectionSegmentPlane(A, B, backPlanePos, backPlaneNorm, intersectPoint, intersectNorm) == 1) {
-        spherePos.zero();
-        spherePos.copyfrom(intersectPoint);
-        spherePos.z(spherePos.z() + (boundaryLimit * 2 - .01));
-        if (!checkBounds(spherePos, boundaryLimit)) {
-        spherePos = tempPos;
-        }
+    };
+
+    reflectAcrossPlane(northPlanePos, northPlaneNorm, A, B);
+    reflectAcrossPlane(southPlanePos, southPlaneNorm, A, B);
+    reflectAcrossPlane(eastPlanePos, eastPlaneNorm, A, B);
+    reflectAcrossPlane(westPlanePos, westPlaneNorm, A, B);
+    reflectAcrossPlane(forwardPlanePos, forwardPlaneNorm, A, B);
+    reflectAcrossPlane(backPlanePos, backPlaneNorm, A, B);
+
+    spherePos = B;
+    if (!checkBounds(spherePos, boundaryLimit)) {
+        spherePos = originalB;
     }
 }
