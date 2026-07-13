@@ -12,7 +12,7 @@
 //------------------------------------------------------------------------------
 // STATES
 //------------------------------------------------------------------------------
-enum MouseState { MOUSE_IDLE, MOUSE_SELECTION };
+enum MouseState { MOUSE_IDLE, MOUSE_SELECTION, MOUSE_BOX_SELECTION };
 enum LocalPotential { LENNARD_JONES, MORSE, ASE };
 enum class HapticMode { Position, Standby, Force };
 
@@ -64,6 +64,14 @@ extern int height;
 // offset between the position of the mouse click on the object and the object
 // reference frame location.
 extern cVector3d selectedAtomOffset;
+
+// screen-space selection box state, stored in framebuffer pixels with origin at
+// the bottom-left to match CHAI3D front-layer coordinates
+extern double selectionStartX;
+extern double selectionStartY;
+extern double selectionCurrentX;
+extern double selectionCurrentY;
+extern cShapeLine *selectionBoxLines[4];
 
 extern GLFWwindow *window;
 

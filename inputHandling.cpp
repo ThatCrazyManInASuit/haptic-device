@@ -5,19 +5,105 @@
 #include <sys/stat.h>
 #include <fstream>
 #include <mutex>
+#include <algorithm>
 
 int just_unanchored = 0;
 bool transparentAtoms = false;
 
-// CHAI3D renders into the framebuffer, which is measured in pixels. On HiDPI /
-// Retina displays the framebuffer is larger than the window (measured in points),
-// so cursor coordinates from GLFW (window points) must be scaled up to the same
-// pixel space as width/height before being used for picking or world math.
+// CHAI3D renders into the framebuffer, which is measured in pixels. GLFW cursor
+// coordinates are in window coordinates, so derive the conversion from the
+// actual framebuffer/window ratio. This is more reliable than content scale on
+// macOS Retina displays, where the two can diverge depending on monitor/window
+// state.
 static void scaleCursorToPixels(double &a_x, double &a_y) {
-  float xscale, yscale;
-  glfwGetWindowContentScale(window, &xscale, &yscale);
-  a_x *= xscale;
-  a_y *= yscale;
+  int windowWidth = 0;
+  int windowHeight = 0;
+  int framebufferWidth = 0;
+  int framebufferHeight = 0;
+  glfwGetWindowSize(window, &windowWidth, &windowHeight);
+  glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+  if (windowWidth <= 0 || windowHeight <= 0) {
+    return;
+  }
+
+  a_x *= static_cast<double>(framebufferWidth) / static_cast<double>(windowWidth);
+  a_y *= static_cast<double>(framebufferHeight) / static_cast<double>(windowHeight);
+}
+
+static void ensureSelectionBoxLines() {
+  for (int i = 0; i < 4; i++) {
+    if (selectionBoxLines[i] == NULL) {
+      selectionBoxLines[i] = new cShapeLine(cVector3d(0, 0, 0),
+                                            cVector3d(0, 0, 0));
+      selectionBoxLines[i]->setLineWidth(2);
+      selectionBoxLines[i]->m_colorPointA.setYellowGold();
+      selectionBoxLines[i]->m_colorPointB.setYellowGold();
+      selectionBoxLines[i]->setShowEnabled(false);
+      camera->m_frontLayer->addChild(selectionBoxLines[i]);
+    }
+  }
+}
+
+static void setSelectionBoxVisible(bool visible) {
+  ensureSelectionBoxLines();
+  for (int i = 0; i < 4; i++) {
+    selectionBoxLines[i]->setShowEnabled(visible);
+  }
+}
+
+static void updateSelectionBoxLines() {
+  ensureSelectionBoxLines();
+  const double left = std::min(selectionStartX, selectionCurrentX);
+  const double right = std::max(selectionStartX, selectionCurrentX);
+  const double bottom = std::min(selectionStartY, selectionCurrentY);
+  const double top = std::max(selectionStartY, selectionCurrentY);
+
+  selectionBoxLines[0]->m_pointA = cVector3d(left, bottom, 0);
+  selectionBoxLines[0]->m_pointB = cVector3d(right, bottom, 0);
+  selectionBoxLines[1]->m_pointA = cVector3d(right, bottom, 0);
+  selectionBoxLines[1]->m_pointB = cVector3d(right, top, 0);
+  selectionBoxLines[2]->m_pointA = cVector3d(right, top, 0);
+  selectionBoxLines[2]->m_pointB = cVector3d(left, top, 0);
+  selectionBoxLines[3]->m_pointA = cVector3d(left, top, 0);
+  selectionBoxLines[3]->m_pointB = cVector3d(left, bottom, 0);
+}
+
+static bool projectAtomToScreen(Atom *atom, double &screenX, double &screenY) {
+  cVector3d atomPos = atom->getLocalPos();
+  cVector3d toAtom = atomPos - camera->getLocalPos();
+  double depth = toAtom.dot(camera->getLookVector());
+  if (depth <= 0.0) {
+    return false;
+  }
+
+  double scale = (0.5 * height) / tan(0.5 * camera->getFieldViewAngleRad());
+  screenX = (toAtom.dot(camera->getRightVector()) / depth) * scale + 0.5 * width;
+  screenY = (toAtom.dot(camera->getUpVector()) / depth) * scale + 0.5 * height;
+  return true;
+}
+
+static void selectAtomsInBox() {
+  const double left = std::min(selectionStartX, selectionCurrentX);
+  const double right = std::max(selectionStartX, selectionCurrentX);
+  const double bottom = std::min(selectionStartY, selectionCurrentY);
+  const double top = std::max(selectionStartY, selectionCurrentY);
+
+  bool anySelected = false;
+  for (Atom *atom : spheres) {
+    double screenX = 0.0;
+    double screenY = 0.0;
+    bool inside = projectAtomToScreen(atom, screenX, screenY) &&
+                  screenX >= left && screenX <= right &&
+                  screenY >= bottom && screenY <= top;
+    atom->setSelected(inside);
+    anySelected = anySelected || inside;
+  }
+
+  if (anySelected) {
+    for (Atom *atom : spheres) {
+      atom->setCurrent(false);
+    }
+  }
 }
 
 void toggleFullscreen() {
@@ -265,7 +351,14 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
 
 void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
     std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-    if ((selectedAtom != NULL) && (mouseState == MOUSE_SELECTION) &&
+    if (mouseState == MOUSE_BOX_SELECTION) {
+        double posX = a_posX, posY = a_posY;
+        scaleCursorToPixels(posX, posY);
+        selectionCurrentX = posX;
+        selectionCurrentY = height - posY;
+        updateSelectionBoxLines();
+        setSelectionBoxVisible(true);
+    } else if ((selectedAtom != NULL) && (mouseState == MOUSE_SELECTION) &&
         (selectedAtom->isAnchor())) {
         // get the vector that goes from the camera to the selected point (mouse
         // click)
@@ -323,10 +416,24 @@ void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
         if (hit) {
             cGenericObject *selected = recorder.m_nearestCollision.m_object;
             selectedAtom = (Atom *)selected;
+            if (a_mods & GLFW_MOD_SHIFT) {
+                selectedAtom->setSelected(true);
+                mouseState = MOUSE_IDLE;
+                return;
+            }
             selectedPoint = recorder.m_nearestCollision.m_globalPos;
             selectedAtomOffset =
             recorder.m_nearestCollision.m_globalPos - selectedAtom->getLocalPos();
             mouseState = MOUSE_SELECTION;
+        } else {
+            selectedAtom = NULL;
+            selectionStartX = x;
+            selectionStartY = height - y;
+            selectionCurrentX = selectionStartX;
+            selectionCurrentY = selectionStartY;
+            updateSelectionBoxLines();
+            setSelectionBoxVisible(true);
+            mouseState = MOUSE_BOX_SELECTION;
         }
     } else if (a_button == GLFW_MOUSE_BUTTON_RIGHT && a_action == GLFW_PRESS) {
         glfwGetCursorPos(window, &x, &y);
@@ -346,7 +453,17 @@ void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
             }
             mouseState = MOUSE_SELECTION;
         }
+    } else if (a_button == GLFW_MOUSE_BUTTON_LEFT && a_action == GLFW_RELEASE &&
+               mouseState == MOUSE_BOX_SELECTION) {
+        glfwGetCursorPos(window, &x, &y);
+        scaleCursorToPixels(x, y);
+        selectionCurrentX = x;
+        selectionCurrentY = height - y;
+        selectAtomsInBox();
+        setSelectionBoxVisible(false);
+        mouseState = MOUSE_IDLE;
     } else {
+        setSelectionBoxVisible(false);
         mouseState = MOUSE_IDLE;
     }
 }

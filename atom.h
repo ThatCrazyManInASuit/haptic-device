@@ -11,12 +11,14 @@ private:
     bool anchor;
     bool current;
     bool repeating;
+    bool selected;
     cVector3d velocity;
     cVector3d force;
     cShapeLine *velVector;
     int atomicNumber;
     cColorf base_color;
 
+    void refreshMaterial();
 
 public:
     Atom(double radius, int atomicNumber, cColorf color);
@@ -27,6 +29,8 @@ public:
     void setRepeating(bool newRepeat);
     bool isCurrent();
     void setCurrent(bool newCurrent);
+    bool isSelected();
+    void setSelected(bool newSelected);
     cVector3d getVelocity();
     void setVelocity(cVector3d newVel);
     cVector3d getForce();
