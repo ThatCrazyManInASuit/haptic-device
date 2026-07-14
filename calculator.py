@@ -138,7 +138,7 @@ def create_calculator(spec):
 
         parts = spec.split(":")
 
-        task_name = "odac"
+        task_name = "omat"
 
         if len(parts) > 1:
             task_name = parts[1]

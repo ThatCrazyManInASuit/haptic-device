@@ -95,8 +95,8 @@ IPC_CONNECT_MAX_ATTEMPTS = 25  # ~10 seconds before giving up
 STATUS_POLL_MS = 500
 
 # must match MIN/MAX_SIMULATION_TIME_STEP in globals.h
-MIN_TIME_STEP_S = 0.0001
-MAX_TIME_STEP_S = 0.005
+MIN_TIME_STEP_S = 1.0
+MAX_TIME_STEP_S = 30.0
 
 # must match the MIN_/MAX_ bounds for these in globals.h
 MIN_SETTLING_ERROR = 0.001
@@ -253,8 +253,8 @@ class MainWindow(QMainWindow):
         self.time_step_spin.setDecimals(4)
         self.time_step_spin.setRange(MIN_TIME_STEP_S, MAX_TIME_STEP_S)
         self.time_step_spin.setSingleStep(0.0001)
-        self.time_step_spin.setValue(0.0010)
-        self.time_step_spin.setSuffix(" s")
+        self.time_step_spin.setValue(1)
+        self.time_step_spin.setSuffix(" fs")
         form.addRow("Initial time step:", self.time_step_spin)
 
         self.port_spin = QSpinBox()

@@ -118,8 +118,8 @@ extern std::atomic<double> simulationTimeStep;
 // smallest and largest time step (seconds) accepted from launch/IPC input.
 // The minimum is intentionally very small so the Time Step slider can crawl the
 // simulation for close inspection; a tiny timestep is more accurate, just slow.
-constexpr double MIN_SIMULATION_TIME_STEP = 0.00001;
-constexpr double MAX_SIMULATION_TIME_STEP = 0.005;
+constexpr double MIN_SIMULATION_TIME_STEP = 1.0;
+constexpr double MAX_SIMULATION_TIME_STEP = 30.0;
 
 // validates and applies a new simulation time step; returns false (leaving
 // the current value untouched) if the value is non-finite or out of

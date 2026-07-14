@@ -89,6 +89,7 @@ extern int just_unanchored;
  rendered next to each other C_STEREO_PASSIVE_TOP_BOTTOM:  Passive stereo
  where L/R images are rendered above each other
  */
+const double ASE_UNITS_TO_FS = 10.18;
 cStereoMode stereoMode = C_STEREO_DISABLED;
 
 // Fullscreen mode
@@ -140,14 +141,14 @@ const double K_RETURN_SPRING = 25.0;
 const double K_RETURN_DAMPER = 2.0;    // Damping for standby return
 const double K_POSITION_ATTRACTION = 25.0;
 const double K_POSITION_DAMPER = 2.0;  // Damping for position mode
-const double MAX_HAPTIC_ATOM_FORCE = 1.6;
+const double MAX_HAPTIC_ATOM_FORCE = 1.0;
 
 // Hard safety ceiling on the force actually sent to the physical device, in
 // the same force units as MAX_FORCE/ATTRACTION_MAX below. Applied AFTER the
 // user-configurable hapticForceScale, so a runaway force spike (e.g. two
 // atoms overlapping) can't slam the device regardless of the chosen
 // feedback intensity - protects older/worn hardware from a hard jolt.
-const double MAX_HAPTIC_OUTPUT_FORCE = 1.6;
+const double MAX_HAPTIC_OUTPUT_FORCE = 10.0;
 
 // Scales the distance betweens atoms
 const double DIST_SCALE = .02;
@@ -1380,18 +1381,11 @@ void initializeprevPositions() {
   }
 }
 
-double getMean(vector<int> v) {
-  int sum = 0;
-  for (int i = 0; i < v.size(); i++) {
-    sum += v[i];
-  }
-  return sum / v.size();
-}
-
-vector<int> frequencies;
 void runGraphicsLoop() {
   framebufferSizeCallback(window, width, height); // initialize framebuffer size
   // main graphic loop
+
+  initializeprevPositions();
   while (!glfwWindowShouldClose(window)) {
     glfwGetFramebufferSize(window, &width, &height); // framebuffer size in pixels (HiDPI-aware)
     if (!hapticDevice) {
@@ -1402,17 +1396,14 @@ void runGraphicsLoop() {
       // slider range (including the new slower minimum) actually take effect.
       double timeInterval = simulationTimeStep.load();
       freqCounterHaptics.signal(1);
-      initializeprevPositions();
-      stepSimulation(cVector3d(0.0, 0.0, 0.0), timeInterval, false);
+      
+      stepSimulation(cVector3d(0.0, 0.0, 0.0), timeInterval / ASE_UNITS_TO_FS, false);
     }
     updateGraphics(); // render graphics
     glfwSwapBuffers(window); // swap buffers
     renderSliderWindow();
     glfwPollEvents(); // process events
     freqCounterGraphics.signal(1); // signal frequency counter
-    frequencies.push_back(freqCounterHaptics.getFrequency());
-    // cout << getMean(frequencies) << endl;
-    // cout << freqCounterHaptics.getFrequency() << endl;
   }
 }
 
@@ -1871,203 +1862,229 @@ void applyBoundaryConditions(cVector3d &oldPosition, cVector3d &newPosition) {
 cVector3d getNewAtomPosition(Atom *atom, cVector3d &prev_position, const double timeInterval) {
   cVector3d x_curr = atom->getLocalPos();
   cVector3d force = atom->getForce();
-  cVector3d acc = force / (atom->getMass() * SPHERE_MASS_SCALE_FACTOR);
+
+  cVector3d acc;
+  if (energySurface == ASE) {
+    // force is in eV/Å and getMass() must be amu (see note below). ASE integrates
+    // in Å, giving an Å displacement of (F/m)*dt². We render in world units where
+    // 1 world unit = 1/DIST_SCALE Å, so scale that Å acceleration by DIST_SCALE.
+    acc = force / atom->getMass() * DIST_SCALE;
+    if (atom == spheres[currentIndex]) {
+      cout << acc.length() << endl;
+    }
+  } else {
+    // reduced-unit toy potentials (LJ/Morse): keep the original tuned scaling,
+    // which depends on the current (unphysical) numbers.
+    acc = force / (atom->getMass() * SPHERE_MASS_SCALE_FACTOR);
+  }
   if (!isFiniteVector(acc)) {
     acc.zero();
   }
-  
-  // update position using Verlet integration
   return x_curr + (x_curr - prev_position) + acc * timeInterval * timeInterval;
 }
 
-cVector3d forceModeUpdate(Atom *current, cVector3d position, const double timeInterval) {
-  // spring constant haptic device feels
-  const double K_HAPTIC = K_HAPTIC_SPRING;
-  // spring constant atom feels
-  const double K_CURRENT = K_HAPTIC_SPRING;
-  // damping coefficients
-  const double K_HAPTIC_DAMP = K_HAPTIC_DAMPER;
-  const double K_CURRENT_DAMP = K_HAPTIC_DAMPER;
+// cVector3d forceModeUpdate(Atom *current, cVector3d position, const double timeInterval) {
+//   const double K_CURRENT       = K_HAPTIC_SPRING;
+//   const double K_CURRENT_DAMP  = K_HAPTIC_DAMPER;
+//   const double K_HAPTIC        = K_HAPTIC_SPRING;
+//   const double K_HAPTIC_DAMP   = K_HAPTIC_DAMPER;
 
-  cVector3d positionErr = position - current->getLocalPos();
-  cVector3d currentPrevPos = prevPositions[currentIndex];
-  cVector3d velocity = (current->getLocalPos() - currentPrevPos) / timeInterval;
+//   cVector3d currentPrevPos = prevPositions[currentIndex];
+//   cVector3d x_curr = current->getLocalPos();
 
-  // Spring force + damping force on atom
-  cVector3d hapticForce = positionErr * K_CURRENT - velocity * K_CURRENT_DAMP;
-  current->setForce(current->getForce() + hapticForce);
+//   // Physical (UMA) force: integrate in world units with the ASE scaling.
+//   cVector3d physForce = current->getForce();
+//   cVector3d physAcc;
+//   if (energySurface == ASE) {
+//     physAcc = physForce / current->getMass() * DIST_SCALE;      // ×0.02
+//   } else {
+//     physAcc = physForce / (current->getMass() * SPHERE_MASS_SCALE_FACTOR);
+//   }
+//   if (!isFiniteVector(physAcc)) physAcc.zero();
 
-  current->setLocalPos(getNewAtomPosition(current, currentPrevPos, timeInterval));
-  prevPositions[currentIndex] = current->getLocalPos();
+//   // Haptic spring: defined directly in world/display units. Keep it on the
+//   // ORIGINAL scaling so its feel is unchanged by the physics-unit fix.
+//   cVector3d positionErr = position - x_curr;
+//   cVector3d velocity    = (x_curr - currentPrevPos) / timeInterval;
+//   cVector3d hapticAcc   = (positionErr * K_CURRENT - velocity * K_CURRENT_DAMP)
+//                           / (current->getMass() * SPHERE_MASS_SCALE_FACTOR);
+                          
+//   if (!isFiniteVector(hapticAcc)) hapticAcc.zero();
 
-  // Spring force + damping force returned to haptic device
-  cVector3d forceErr = current->getLocalPos() - position;
-  cVector3d hapticVelocity = (current->getLocalPos() - currentPrevPos) / timeInterval;
-  return forceErr * K_HAPTIC - hapticVelocity * K_HAPTIC_DAMP;
-}
+//   // Verlet, summing the two accelerations only at integration time.
+//   cVector3d newPos = x_curr + (x_curr - currentPrevPos)
+//                    + (physAcc + hapticAcc) * timeInterval * timeInterval;
+//   current->setLocalPos(newPos);
+//   prevPositions[currentIndex] = newPos;
+
+//   cVector3d forceErr        = current->getLocalPos() - position;
+//   cVector3d hapticVelocity  = (current->getLocalPos() - currentPrevPos) / timeInterval;
+//   return forceErr * K_HAPTIC - hapticVelocity * K_HAPTIC_DAMP;
+// }
+
 bool prevHapticInitialized;
 cVector3d prevHapticPosition(0,0,0);
-cPrecisionClock positionClock;
-bool standby;
-bool resetting;
-bool confirming;
-bool simulating;
-double finalErr;
+// cPrecisionClock positionClock;
+// bool standby;
+// bool resetting;
+// bool confirming;
+// bool simulating;
+// double finalErr;
 
-const int MAX_FORCE_HISTORY = 10000;
-cVector3d prevForces[MAX_FORCE_HISTORY];
-int prevForcesIndex = 0;
+// const int MAX_FORCE_HISTORY = 10000;
+// cVector3d prevForces[MAX_FORCE_HISTORY];
+// int prevForcesIndex = 0;
 
-double getStrongestScalarProj(cVector3d v) {
-  const double length = v.length();
-  if (length <= 1e-9) {
-    return 0.0;
-  }
+// double getStrongestScalarProj(cVector3d v) {
+//   const double length = v.length();
+//   if (length <= 1e-9) {
+//     return 0.0;
+//   }
 
-  double strongest = 0;
-  for (int i = 0; i < MAX_FORCE_HISTORY; i++) {
-    double scalarProj = v.dot(prevForces[i]) / length;
-    if (strongest < scalarProj) {
-      strongest = scalarProj;
-    }
-  }
-  return strongest;
-}
+//   double strongest = 0;
+//   for (int i = 0; i < MAX_FORCE_HISTORY; i++) {
+//     double scalarProj = v.dot(prevForces[i]) / length;
+//     if (strongest < scalarProj) {
+//       strongest = scalarProj;
+//     }
+//   }
+//   return strongest;
+// }
 
-void recordForceHistory(Atom *current) {
-  constexpr double REST_ERR = 0.001;
+// void recordForceHistory(Atom *current) {
+//   constexpr double REST_ERR = 0.001;
 
-  if (!simulating) return;
-  if (current->getForce().length() < REST_ERR) return;
+//   if (!simulating) return;
+//   if (current->getForce().length() < REST_ERR) return;
 
-  prevForces[prevForcesIndex] = current->getForce();
-  prevForcesIndex = (prevForcesIndex + 1) % MAX_FORCE_HISTORY;
-}
+//   prevForces[prevForcesIndex] = current->getForce();
+//   prevForcesIndex = (prevForcesIndex + 1) % MAX_FORCE_HISTORY;
+// }
 
-std::optional<cVector3d> updateStandbyModeSimulating(Atom *current, cVector3d& position, double timeInterval) {
-  constexpr double HAPTIC_RADIUS = .02;
-  constexpr double K_HAPTIC = 1; // spring constant for applying vector projection
+// std::optional<cVector3d> updateStandbyModeSimulating(Atom *current, cVector3d& position, double timeInterval) {
+//   constexpr double HAPTIC_RADIUS = .02;
+//   constexpr double K_HAPTIC = 1; // spring constant for applying vector projection
 
-  if (position.length() < HAPTIC_RADIUS) {
-    cVector3d temp = current->getLocalPos();
-    current->setLocalPos(getNewAtomPosition(current, prevPositions[currentIndex], timeInterval));
-    prevPositions[currentIndex] = temp;
+//   if (position.length() < HAPTIC_RADIUS) {
+//     cVector3d temp = current->getLocalPos();
+//     current->setLocalPos(getNewAtomPosition(current, prevPositions[currentIndex], timeInterval));
+//     prevPositions[currentIndex] = temp;
 
-    double distFromCenter = position.length() - finalErr;
-    if (position.length() <= 1e-9) {
-      return cVector3d(0, 0, 0);
-    }
+//     double distFromCenter = position.length() - finalErr;
+//     if (position.length() <= 1e-9) {
+//       return cVector3d(0, 0, 0);
+//     }
 
-    cVector3d direction = cNormalize(position);
-    return getStrongestScalarProj(-direction) * -direction * (distFromCenter / HAPTIC_RADIUS) * K_HAPTIC;
-  }
-  simulating = false;
-  return std::nullopt;
-}
+//     cVector3d direction = cNormalize(position);
+//     return getStrongestScalarProj(-direction) * -direction * (distFromCenter / HAPTIC_RADIUS) * K_HAPTIC;
+//   }
+//   simulating = false;
+//   return std::nullopt;
+// }
 
-std::optional<cVector3d> updateStandbyState(Atom *current, const cVector3d& position,
-                                          const cVector3d& dPHaptic, double timeInterval) {
-  // position err acceptable for return mechanism to return to center,
-  // live-tunable via the IPC "set settling_err" command / launcher UI
-  double SETTLING_ERR = settlingError.load();
-  // spring constant for return haptic controller to center, live-tunable via
-  // the IPC "set k_return" command / launcher UI
-  double K_RETURN = kReturn.load();
-  constexpr double K_DAMPING = 8.0;
-  constexpr double RETURN_DELAY_SECONDS = 5.0;
+// std::optional<cVector3d> updateStandbyState(Atom *current, const cVector3d& position,
+//                                           const cVector3d& dPHaptic, double timeInterval) {
+//   // position err acceptable for return mechanism to return to center,
+//   // live-tunable via the IPC "set settling_err" command / launcher UI
+//   double SETTLING_ERR = settlingError.load();
+//   // spring constant for return haptic controller to center, live-tunable via
+//   // the IPC "set k_return" command / launcher UI
+//   double K_RETURN = kReturn.load();
+//   constexpr double K_DAMPING = 8.0;
+//   constexpr double RETURN_DELAY_SECONDS = 5.0;
 
-  if (position.length() >= SETTLING_ERR) {
-    if (resetting && confirming) {
-      cout << "Not yet settled!" << endl;
-    }
-    confirming = false;
-    // delay (seconds) after entering standby before the return mechanism
-    // kicks in, live-tunable via the IPC "set return_delay" command / launcher UI
-    if (positionClock.getCurrentTimeSeconds() >= returnDelaySeconds.load() || resetting) {
-      positionClock.stop();
-      positionClock.reset();
-      if (!resetting) {
-        cout << "Resetting to center..." << endl;
-      }
-      resetting = true;
+//   if (position.length() >= SETTLING_ERR) {
+//     if (resetting && confirming) {
+//       cout << "Not yet settled!" << endl;
+//     }
+//     confirming = false;
+//     // delay (seconds) after entering standby before the return mechanism
+//     // kicks in, live-tunable via the IPC "set return_delay" command / launcher UI
+//     if (positionClock.getCurrentTimeSeconds() >= returnDelaySeconds.load() || resetting) {
+//       positionClock.stop();
+//       positionClock.reset();
+//       if (!resetting) {
+//         cout << "Resetting to center..." << endl;
+//       }
+//       resetting = true;
 
-      const double MAX_FORCE = 1.6; // maximum force the return mechanism should output
+//       const double MAX_FORCE = 1.6; // maximum force the return mechanism should output
 
-      double distanceFromCenter = position.length();
-      double springScale = 0.5 + (distanceFromCenter / (SETTLING_ERR * 2.0));
-      if (springScale > 1.0) {
-        springScale = 1.0;
-      }
+//       double distanceFromCenter = position.length();
+//       double springScale = 0.5 + (distanceFromCenter / (SETTLING_ERR * 2.0));
+//       if (springScale > 1.0) {
+//         springScale = 1.0;
+//       }
 
-      // velocity-based damping on the return spring, live-tunable via the
-      // IPC "set k_dampen" command / launcher UI; defaults to 0 (no
-      // damping) so existing return behavior is unchanged until set
-      cVector3d hapticVelocity = dPHaptic / timeInterval;
-      cVector3d returnVector = -position * K_RETURN - hapticVelocity * kDampen.load();
-      return clampVectorMagnitude(returnVector, MAX_FORCE);
-    }
-  } else {
-    if (!confirming) {
-      cout << "Starting confirmation..." << endl;
-      positionClock.start();
-      confirming = true;
-    }
+//       // velocity-based damping on the return spring, live-tunable via the
+//       // IPC "set k_dampen" command / launcher UI; defaults to 0 (no
+//       // damping) so existing return behavior is unchanged until set
+//       cVector3d hapticVelocity = dPHaptic / timeInterval;
+//       cVector3d returnVector = -position * K_RETURN - hapticVelocity * kDampen.load();
+//       return clampVectorMagnitude(returnVector, MAX_FORCE);
+//     }
+//   } else {
+//     if (!confirming) {
+//       cout << "Starting confirmation..." << endl;
+//       positionClock.start();
+//       confirming = true;
+//     }
     
-    if (positionClock.getCurrentTimeSeconds() >= .5) {
-      cout << "Done!" << endl;
-      standby = false;
-      resetting = false;
-      confirming = false;
-      prevHapticInitialized = false;
-      simulating = true;
-      positionClock.stop();
-      positionClock.reset();
+//     if (positionClock.getCurrentTimeSeconds() >= .5) {
+//       cout << "Done!" << endl;
+//       standby = false;
+//       resetting = false;
+//       confirming = false;
+//       prevHapticInitialized = false;
+//       simulating = true;
+//       positionClock.stop();
+//       positionClock.reset();
 
-      prevPositions[currentIndex] = current->getLocalPos();
-      finalErr = position.length();
-    }
-    return cVector3d(0,0,0);
-  }
-  return std::nullopt;
-}
+//       prevPositions[currentIndex] = current->getLocalPos();
+//       finalErr = position.length();
+//     }
+//     return cVector3d(0,0,0);
+//   }
+//   return std::nullopt;
+// }
 
-cVector3d standbyModeUpdate(Atom *current, cVector3d position, const double timeInterval) {
-  constexpr double STANDBY_ERR = .1; // movement err acceptable for standby mode to activate
+// cVector3d standbyModeUpdate(Atom *current, cVector3d position, const double timeInterval) {
+//   constexpr double STANDBY_ERR = .1; // movement err acceptable for standby mode to activate
 
-  if (!prevHapticInitialized) {
-    prevHapticInitialized = true;
-    prevHapticPosition = position;
-  }
-  recordForceHistory(current);
+//   if (!prevHapticInitialized) {
+//     prevHapticInitialized = true;
+//     prevHapticPosition = position;
+//   }
+//   recordForceHistory(current);
 
-  cVector3d dPHaptic = position - prevHapticPosition;
-  prevHapticPosition = position;
+//   cVector3d dPHaptic = position - prevHapticPosition;
+//   prevHapticPosition = position;
 
-  if (simulating) {
-    auto pos = updateStandbyModeSimulating(current, position, timeInterval);
-    if (pos) return *pos;
-  } else {
-    if (dPHaptic.length() < STANDBY_ERR && !standby && position.length() >= .01) {
-      positionClock.start();
-      standby = true;
-      cout << "Entering standby mode..." << endl;
-    }
-    if (standby) {
-      auto pos = updateStandbyState(current, position, dPHaptic, timeInterval);
-      if (pos) return *pos;
-    }
+//   if (simulating) {
+//     auto pos = updateStandbyModeSimulating(current, position, timeInterval);
+//     if (pos) return *pos;
+//   } else {
+//     if (dPHaptic.length() < STANDBY_ERR && !standby && position.length() >= .01) {
+//       positionClock.start();
+//       standby = true;
+//       cout << "Entering standby mode..." << endl;
+//     }
+//     if (standby) {
+//       auto pos = updateStandbyState(current, position, dPHaptic, timeInterval);
+//       if (pos) return *pos;
+//     }
 
-    if (dPHaptic.length() >= 1e-6 && standby && !resetting) { 
-      standby = false;
-      positionClock.stop();
-      positionClock.reset();
-      cout << "Standby cancelled!" << endl;
-    }
-  }
+//     if (dPHaptic.length() >= 1e-6 && standby && !resetting) { 
+//       standby = false;
+//       positionClock.stop();
+//       positionClock.reset();
+//       cout << "Standby cancelled!" << endl;
+//     }
+//   }
 
-  current->setLocalPos(current->getLocalPos() + dPHaptic);
-  return current->getForce();
-}
+//   current->setLocalPos(current->getLocalPos() + dPHaptic);
+//   return current->getForce();
+// }
 
 cVector3d positionModeUpdate(Atom *current, cVector3d position, const double timeInterval) {
   const double VELOCITY_MULT = 25;
@@ -2102,19 +2119,19 @@ vector<int> activeHapticInfluence;
 
 void ensureHapticInfluenceOffsets(const vector<int> &indices,
                                   const cVector3d &position) {
-  if (indices == activeHapticInfluence) {
-    return;
-  }
-
-  activeHapticInfluence = indices;
-  hapticInfluenceOffsets.clear();
-  for (int index : indices) {
-    if (spheres[index]->isSelected()) {
-      hapticInfluenceOffsets[index] = spheres[index]->getLocalPos() - position;
-    } else {
-      hapticInfluenceOffsets[index] = cVector3d(0, 0, 0);
+  if (indices != activeHapticInfluence) {
+    activeHapticInfluence = indices;
+    hapticInfluenceOffsets.clear();
+    for (int index : indices) {
+      if (spheres[index]->isSelected()) {
+        hapticInfluenceOffsets[index] = spheres[index]->getLocalPos() - position;
+      } else {
+        hapticInfluenceOffsets[index] = cVector3d(0, 0, 0);
+      }
     }
   }
+
+  
 }
 
 cVector3d getAverageAtomGroupForce(const vector<int> &indices) {
@@ -2390,8 +2407,9 @@ void updateHaptics(void) {
     // time step the simulation runs at in seconds - shorter timesteps are more
     // accurate but advance the sim more slowly. Driven by the Time Step slider
     // (and HAPTIC_DEVICE_TIME_STEP / the IPC "set timestep" command) so the
+    // cout << simulationTimeStep.load() << endl;
     // slider takes effect in haptic mode too, instead of a hardcoded value.
-    cVector3d force = stepSimulation(position, simulationTimeStep.load(), true);
+    cVector3d force = stepSimulation(position, simulationTimeStep.load() / ASE_UNITS_TO_FS, true);
 
     /////////////////////////////////////////////////////////////////////////
     // APPLY FORCES
