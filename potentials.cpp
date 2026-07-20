@@ -4,7 +4,6 @@
 // which allows using any ASE-compatible physics engine including ML potentials.
 
 #include "potentials.h"
-
 #include <Python.h>
 
 #include <array>
@@ -30,13 +29,12 @@
 
 extern double centerCoords[3];
 
-namespace
-{
+namespace {
 
     // Haptic display coordinates are in meters; ASE expects angstroms.
     // This factor converts between the two when passing positions to Python
     // and when interpreting forces coming back.
-    constexpr double kDistanceScale = 0.02;
+    
 
     // These are module-level handles to the Python objects we reuse across frames.
     // They are initialized once in parseCalculatorSpec and kept alive for the
@@ -89,7 +87,7 @@ namespace
             } else {
                 venvPython = "./haptic-device/uma_env/bin/python";
             }
-            config.program_name = Py_DecodeLocale(venvPython.string().c_str(), NULL);
+            config.program_name = Py_DecodeLocale(venvPython.string().c_str(), nullptr);
 
             config.module_search_paths_set = 0;
 
@@ -150,9 +148,9 @@ namespace
         positions.reserve(spheres.size() * 3);
         for (const Atom *sphere : spheres) {
             cVector3d pos = sphere->getLocalPos();
-            positions.push_back(pos.x() / kDistanceScale + centerCoords[0]);
-            positions.push_back(pos.y() / kDistanceScale + centerCoords[1]);
-            positions.push_back(pos.z() / kDistanceScale + centerCoords[2]);
+            positions.push_back(pos.x() / DIST_SCALE + centerCoords[0]);
+            positions.push_back(pos.y() / DIST_SCALE + centerCoords[1]);
+            positions.push_back(pos.z() / DIST_SCALE + centerCoords[2]);
         }
         return positions;
     }
@@ -1032,22 +1030,19 @@ aseCalculator::aseCalculator(const std::string &cName,
 
 void aseCalculator::setTemperature(double temperatureValue) {
     temperature = temperatureValue;
-    if (calcObject == nullptr) {
-        return;
-    }
+    if (calcObject != nullptr) {
+        ensurePythonInitialized();
+        PyGILState_STATE gilState = PyGILState_Ensure();
+        PyObject *temperatureObject = PyFloat_FromDouble(temperature);
+        if (temperatureObject == nullptr) {
+            PyGILState_Release(gilState);
+            failWithPythonError("Failed to convert ASE temperature value.");
+        }
+        int setResult = PyObject_SetAttrString(calcObject, "temperature", temperatureObject);
 
-    ensurePythonInitialized();
-
-    PyGILState_STATE gilState = PyGILState_Ensure();
-    PyObject *temperatureObject = PyFloat_FromDouble(temperature);
-    if (temperatureObject == nullptr) {
+        Py_DECREF(temperatureObject);
         PyGILState_Release(gilState);
-        failWithPythonError("Failed to convert ASE temperature value.");
     }
-    int setResult = PyObject_SetAttrString(calcObject, "temperature", temperatureObject);
-
-    Py_DECREF(temperatureObject);
-    PyGILState_Release(gilState);
 }
 
 std::vector<std::vector<double>> aseCalculator::getFandU(std::vector<Atom *> &spheres) {

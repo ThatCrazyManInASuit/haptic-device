@@ -95,8 +95,8 @@ IPC_CONNECT_MAX_ATTEMPTS = 25  # ~10 seconds before giving up
 STATUS_POLL_MS = 500
 
 # must match MIN/MAX_SIMULATION_TIME_STEP in globals.h
-MIN_TIME_STEP_S = 1.0
-MAX_TIME_STEP_S = 30.0
+MIN_TIME_STEP_S = 0.0
+MAX_TIME_STEP_S = 2.0
 
 # must match the MIN_/MAX_ bounds for these in globals.h
 MIN_SETTLING_ERROR = 0.001

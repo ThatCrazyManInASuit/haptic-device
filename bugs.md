@@ -2,22 +2,6 @@
 
 Date: 2026-04-02
 
-Fixed Since The Earlier Notes
-
-# please test ase morse behavior refer to README
-can use haptic_device [number_of_atoms_param] [ase, morse]
-examples:
-./path/to/haptic-device/ 5 ase
-./path/to/haptic-device/ POSCAR ase
-
-Problem with ASE calculator when using with param of # atoms
-PE is 0.00 
-
-1. The old size-sensitive `free(): invalid pointer` abort is no longer reproducible in the current binary.
-2. Missing-haptic-device startup no longer dereferences a null device; it falls back to keyboard/mouse-only mode.
-3. File/POSCAR load failures are now caught and reported cleanly.
-4. The CTRL help toggle no longer flips on `GLFW_REPEAT`.
-
 # Partially Fixed
 1. Shutdown no longer hangs just because no haptics thread was started.
 2. I did not validate real-device shutdown behavior because no hardware was present, so that case remains only partially covered.

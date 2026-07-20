@@ -376,6 +376,7 @@ Atom::Atom(double radius, int atomicNumber, cColorf color)
     selected = false;
     velVector = new cShapeLine(cVector3d(0, 0, 0), cVector3d(0, 0, 0));
     force.zero();
+    prevForce.zero();
     this->atomicNumber = atomicNumber;
     // note - cColorf defaults to white, as such
     // the default for atoms is also white (see the header file)
@@ -392,6 +393,7 @@ Atom::Atom(double radius, int atomicNumber) : cShapeSphere(radius) {
     selected = false;
     velVector = new cShapeLine(cVector3d(0, 0, 0), cVector3d(0, 0, 0));
     force.zero();
+    prevForce.zero();
     this->atomicNumber = atomicNumber;
 
     // check if atomic number has a registered color. If not, use 0 (magenta)
@@ -460,8 +462,13 @@ void Atom::setVelocity(cVector3d newVel) { velocity = newVel; }
 cVector3d Atom::getForce() { return force; }
 
 void Atom::setForce(cVector3d newForce) {
+    prevForce = force;
     force = newForce;  // Add exception for if controlled atom is in the same
     // location as the anchored atom
+}
+
+cVector3d Atom::getPrevForce() {
+    return prevForce;
 }
 
 cShapeLine* Atom::getVelVector() { return velVector; }

@@ -38,46 +38,24 @@ extern std::vector<chai3d::cLabel *> hotkeyFunctions;
 extern chai3d::cCamera *camera;
 
 // for updating camera position
-extern double rho;
+extern double CAMERA_POSITION;
 
+extern double CAMERA_RADIUS; 
+
+extern const double DIST_SCALE;
 // sphere objects
 extern std::vector<Atom *> spheres;
 
 // coordinates of central atom
 extern double centerCoords[3];
 
-// a pointer to the selected object
-extern Atom *selectedAtom;
-
-// mouse state
-extern MouseState mouseState;
-
-// position of mouse click.
-extern cVector3d selectedPoint;
+const int SWAP_INTERVAL = 1;
 
 // current width of window
 extern int width;
 
 // current height of window
 extern int height;
-
-// offset between the position of the mouse click on the object and the object
-// reference frame location.
-extern cVector3d selectedAtomOffset;
-
-// screen-space selection box state, stored in framebuffer pixels with origin at
-// the bottom-left to match CHAI3D front-layer coordinates
-extern double selectionStartX;
-extern double selectionStartY;
-extern double selectionCurrentX;
-extern double selectionCurrentY;
-extern cShapeLine *selectionBoxLines[4];
-
-extern GLFWwindow *window;
-
-extern bool fullscreen;
-
-extern int swapInterval;
 
 extern cScope *scope;
 
@@ -118,8 +96,8 @@ extern std::atomic<double> simulationTimeStep;
 // smallest and largest time step (seconds) accepted from launch/IPC input.
 // The minimum is intentionally very small so the Time Step slider can crawl the
 // simulation for close inspection; a tiny timestep is more accurate, just slow.
-constexpr double MIN_SIMULATION_TIME_STEP = 1.0;
-constexpr double MAX_SIMULATION_TIME_STEP = 30.0;
+constexpr double MIN_SIMULATION_TIME_STEP = 0.0;
+constexpr double MAX_SIMULATION_TIME_STEP = 2.0;
 
 // validates and applies a new simulation time step; returns false (leaving
 // the current value untouched) if the value is non-finite or out of

@@ -35,6 +35,7 @@ set(HAPTIC_DEVICE_SOURCES
   ipcServer.cpp
   potentials.cpp
   utility.cpp
+  slider.cpp
 )
 
 add_executable(haptic-device ${HAPTIC_DEVICE_SOURCES})

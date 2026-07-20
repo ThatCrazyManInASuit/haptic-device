@@ -9,13 +9,28 @@
 
 int just_unanchored = 0;
 bool transparentAtoms = false;
+bool fullscreen = false; // Enables the full-screen window mode when true.
+MouseState mouseState = MOUSE_IDLE; // mouse state
+Atom *selectedAtom; // a pointer to the selected atom
+
+// offset between the position of the mmouse click on the object and the object reference frame
+// location.
+cVector3d selectedAtomOffset;
+
+cVector3d selectedPoint; // position of mouse click.
+
+double selectionStartX;
+double selectionStartY;
+double selectionCurrentX;
+double selectionCurrentY;
+cShapeLine *selectionBoxLines[4] = {nullptr, nullptr, nullptr, nullptr};
 
 // CHAI3D renders into the framebuffer, which is measured in pixels. GLFW cursor
 // coordinates are in window coordinates, so derive the conversion from the
 // actual framebuffer/window ratio. This is more reliable than content scale on
 // macOS Retina displays, where the two can diverge depending on monitor/window
 // state.
-static void scaleCursorToPixels(double &a_x, double &a_y) {
+static void scaleCursorToPixels(GLFWwindow *window, double &a_x, double &a_y) {
   int windowWidth = 0;
   int windowHeight = 0;
   int framebufferWidth = 0;
@@ -32,7 +47,7 @@ static void scaleCursorToPixels(double &a_x, double &a_y) {
 
 static void ensureSelectionBoxLines() {
   for (int i = 0; i < 4; i++) {
-    if (selectionBoxLines[i] == NULL) {
+    if (selectionBoxLines[i] == nullptr) {
       selectionBoxLines[i] = new cShapeLine(cVector3d(0, 0, 0),
                                             cVector3d(0, 0, 0));
       selectionBoxLines[i]->setLineWidth(2);
@@ -106,7 +121,7 @@ static void selectAtomsInBox() {
   }
 }
 
-void toggleFullscreen() {
+void toggleFullscreen(GLFWwindow* window) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   fullscreen = !fullscreen;
   GLFWmonitor *monitor = glfwGetPrimaryMonitor();
@@ -114,14 +129,14 @@ void toggleFullscreen() {
   if (fullscreen) {
     glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height,
                           mode->refreshRate);
-    glfwSwapInterval(swapInterval);
+    glfwSwapInterval(SWAP_INTERVAL);
   } else {
     int w = 2. * mode->height;
     int h = 1.5 * mode->height;
     int x = 1.5 * (mode->width - w);
     int y = 1.5 * (mode->height - h);
-    glfwSetWindowMonitor(window, NULL, x, y, w, h, mode->refreshRate);
-    glfwSwapInterval(swapInterval);
+    glfwSetWindowMonitor(window, nullptr, x, y, w, h, mode->refreshRate);
+    glfwSwapInterval(SWAP_INTERVAL);
   }
 }
 
@@ -219,9 +234,9 @@ void moveCameraHorizontal(bool right) {
 void zoomCamera(bool zoomIn) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   int direction = zoomIn ? 1 : -1;
-  if ((direction == 1 && rho < 1) || (direction == -1 && rho > .15)) {
-    camera->setSphericalRadius(camera->getSphericalRadius() + .01 * direction);
-    rho = camera->getSphericalRadius();
+  double currentCameraRadius = camera->getSphericalRadius();
+  if ((direction == 1 && currentCameraRadius < 1) || (direction == -1 && currentCameraRadius > .15)) {
+    camera->setSphericalRadius(currentCameraRadius + .01 * direction);
     updateCameraLabel(camera_pos, camera);
   }
 }
@@ -230,8 +245,7 @@ void resetCamera() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   camera->setSphericalPolarRad(0);
   camera->setSphericalAzimuthRad(0);
-  camera->setSphericalRadius(.35);
-  rho = .35;
+  camera->setSphericalRadius(CAMERA_RADIUS);
   updateCameraLabel(camera_pos, camera);
 }
 
@@ -252,7 +266,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
   } else if ((a_key == GLFW_KEY_ESCAPE) || (a_key == GLFW_KEY_Q)) {
     glfwSetWindowShouldClose(a_window, GLFW_TRUE);
   } else if (a_key == GLFW_KEY_F) {
-    toggleFullscreen();
+    toggleFullscreen(a_window);
   } else if (a_key == GLFW_KEY_U) {
     // action - unanchor all key
     unanchorAllAtoms();
@@ -353,12 +367,12 @@ void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
     std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     if (mouseState == MOUSE_BOX_SELECTION) {
         double posX = a_posX, posY = a_posY;
-        scaleCursorToPixels(posX, posY);
+        scaleCursorToPixels(a_window, posX, posY);
         selectionCurrentX = posX;
         selectionCurrentY = height - posY;
         updateSelectionBoxLines();
         setSelectionBoxVisible(true);
-    } else if ((selectedAtom != NULL) && (mouseState == MOUSE_SELECTION) &&
+    } else if ((selectedAtom != nullptr) && (mouseState == MOUSE_SELECTION) &&
         (selectedAtom->isAnchor())) {
         // get the vector that goes from the camera to the selected point (mouse
         // click)
@@ -377,7 +391,7 @@ void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
 
         // cursor is in window points; scale to framebuffer pixels to match width/height
         double posX = a_posX, posY = a_posY;
-        scaleCursorToPixels(posX, posY);
+        scaleCursorToPixels(a_window, posX, posY);
 
         // convert the pixel in mouse space into a relative position in the world
         double factor = (distanceToObjectPlane * tan(0.5 *
@@ -409,8 +423,8 @@ void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
     cCollisionRecorder recorder;
     cCollisionSettings settings;
     if (a_button == GLFW_MOUSE_BUTTON_LEFT && a_action == GLFW_PRESS) {
-        glfwGetCursorPos(window, &x, &y);
-        scaleCursorToPixels(x, y); // window points -> framebuffer pixels
+        glfwGetCursorPos(a_window, &x, &y);
+        scaleCursorToPixels(a_window, x, y); // window points -> framebuffer pixels
         bool hit =
         camera->selectWorld(x, (height - y), width, height, recorder, settings);
         if (hit) {
@@ -426,7 +440,7 @@ void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
             recorder.m_nearestCollision.m_globalPos - selectedAtom->getLocalPos();
             mouseState = MOUSE_SELECTION;
         } else {
-            selectedAtom = NULL;
+            selectedAtom = nullptr;
             selectionStartX = x;
             selectionStartY = height - y;
             selectionCurrentX = selectionStartX;
@@ -436,8 +450,8 @@ void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
             mouseState = MOUSE_BOX_SELECTION;
         }
     } else if (a_button == GLFW_MOUSE_BUTTON_RIGHT && a_action == GLFW_PRESS) {
-        glfwGetCursorPos(window, &x, &y);
-        scaleCursorToPixels(x, y); // window points -> framebuffer pixels
+        glfwGetCursorPos(a_window, &x, &y);
+        scaleCursorToPixels(a_window, x, y); // window points -> framebuffer pixels
         bool hit =
         camera->selectWorld(x, (height - y), width, height, recorder, settings);
         if (hit) {
@@ -455,8 +469,8 @@ void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
         }
     } else if (a_button == GLFW_MOUSE_BUTTON_LEFT && a_action == GLFW_RELEASE &&
                mouseState == MOUSE_BOX_SELECTION) {
-        glfwGetCursorPos(window, &x, &y);
-        scaleCursorToPixels(x, y);
+        glfwGetCursorPos(a_window, &x, &y);
+        scaleCursorToPixels(a_window, x, y);
         selectionCurrentX = x;
         selectionCurrentY = height - y;
         selectAtomsInBox();

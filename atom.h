@@ -14,6 +14,7 @@ private:
     bool selected;
     cVector3d velocity;
     cVector3d force;
+    cVector3d prevForce;
     cShapeLine *velVector;
     int atomicNumber;
     cColorf base_color;
@@ -35,6 +36,7 @@ public:
     void setVelocity(cVector3d newVel);
     cVector3d getForce();
     void setForce(cVector3d newForce);
+    cVector3d getPrevForce();
     cShapeLine *getVelVector();
     void setVelVector(cShapeLine *newVelVector);
     void updateVelVector();

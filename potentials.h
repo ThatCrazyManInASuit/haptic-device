@@ -7,6 +7,8 @@
 
 #include "atom.h"
 
+const double DIST_SCALE = 0.02;
+
 struct AseStructureData {
     std::vector<std::array<double, 3>> positions;
     std::vector<int> atomicNumbers;
