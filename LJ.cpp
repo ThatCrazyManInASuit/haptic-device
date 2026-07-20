@@ -50,7 +50,7 @@
 const double ASE_UNITS_TO_FS = 10.18; 
 
 bool showDebug = false; // Toggles the extra debug overlay information when true.
-
+chai3d::cVector3d hapticForce;
 std::vector<cLabel *> debugAtomLabels; // Stores the labels that annotate atoms with their indices.
 
 // Stores the initial atom positions so the structure can be reset.
@@ -422,7 +422,6 @@ vector<cVector3d> polyhedronCords(int k, double radius) {
     addScaledVertex(positions,  0.0,  0.0,  1.0, radius);
     addScaledVertex(positions,  0.0,  0.0, -1.0, radius);
   } else if (k == 8) {
-    //test, might have to hardcode postiitons if this doesnt work
     for (int x = -1; x <= 1; x += 2) {
       for (int y = -1; y <= 1; y += 2) {
         for (int z = -1; z <= 1; z += 2) {
@@ -1071,7 +1070,7 @@ cVector3d addHapticForceToAtoms(const vector<int> &indices,
           velocity * K_HAPTIC_DAMPER;
 
       // Maximum force the haptic device can impart on the current atom in eV/Å
-      const double MAX_HAPTIC_ATOM_FORCE = 1.0; 
+      const double MAX_HAPTIC_ATOM_FORCE = 100.0; 
       atom->setForce(atom->getForce() +
                      clampVectorMagnitude(externalForce, MAX_HAPTIC_ATOM_FORCE));
     }
@@ -1186,80 +1185,72 @@ void updateHaptics() {
   // simulation in now running
   simulationRunning = true;
   simulationFinished = false;
-  if (!hapticDevice) {
-    return;
-  }
-  // open a connection to haptic device
-  hapticDevice->open();
+  if (hapticDevice) {
+    // open a connection to haptic device
+    hapticDevice->open();
 
-  // calibrate device (if necessary)
-  hapticDevice->calibrate();
-  // Track which atom is currently being moved
-  int anchor_atom = 1;
-  int anchor_atom_hold = 1;
+    // calibrate device (if necessary)
+    hapticDevice->calibrate();
+    // Track which atom is currently being moved
+    int anchor_atom = 1;
+    int anchor_atom_hold = 1;
 
-  // main haptic simulation loop
-  bool button3_changed = false;
-  bool is_anchor = true;
-  bool buttons[4];
-  bool buttonReset[4];
-  readButtons(buttons, buttonReset);
-  initializePrevPositions();
-  while (simulationRunning) {
-    /////////////////////////////////////////////////////////////////////
-    // SIMULATION TIME
-    /////////////////////////////////////////////////////////////////////
-
-    // signal frequency counter
-    freqCounterHaptics.signal(1);
-    /////////////////////////////////////////////////////////////////////////
-    // READ HAPTIC DEVICE
-    /////////////////////////////////////////////////////////////////////////
-    // read position
-    cVector3d position;
-    hapticDevice->getPosition(position);
-
-    // Scale position to use more of the screen
-    // increase to use more of the screen
-    position *= 2.0;
-    hapticPosition = position;
-
-    /////////////////////////////////////////////////////////////////////////
-    // UPDATE SIMULATION
-    /////////////////////////////////////////////////////////////////////////
-    // Update current atom based on if the user pressed the far left button
-    // The point of button2_changed is to make it so that it only switches one
-    // atom if the button is touched Otherwise it flips out
-    
+    // main haptic simulation loop
+    bool button3_changed = false;
+    bool is_anchor = true;
+    bool buttons[4];
+    bool buttonReset[4];
     readButtons(buttons, buttonReset);
+    initializePrevPositions();
+    while (simulationRunning) {
+      /////////////////////////////////////////////////////////////////////
+      // SIMULATION TIME
+      /////////////////////////////////////////////////////////////////////
 
-    // time step the simulation runs at in seconds - shorter timesteps are more
-    // accurate but advance the sim more slowly. Driven by the Time Step slider
-    // (and HAPTIC_DEVICE_TIME_STEP / the IPC "set timestep" command) so the
-    // cout << simulationTimeStep.load() << endl;
-    // slider takes effect in haptic mode too, instead of a hardcoded value.
-    cVector3d force = stepSimulation(position, simulationTimeStep.load() / ASE_UNITS_TO_FS, true);
+      // signal frequency counter
+      freqCounterHaptics.signal(1);
+      /////////////////////////////////////////////////////////////////////////
+      // READ HAPTIC DEVICE
+      /////////////////////////////////////////////////////////////////////////
+      // read position
+      cVector3d position;
+      hapticDevice->getPosition(position);
+
+      // Scale position to use more of the screen
+      // increase to use more of the screen
+      position *= 2.0;
+      hapticPosition = position;
+
+      /////////////////////////////////////////////////////////////////////////
+      // UPDATE SIMULATION
+      /////////////////////////////////////////////////////////////////////////
+      // Update current atom based on if the user pressed the far left button
+      // The point of button2_changed is to make it so that it only switches one
+      // atom if the button is touched Otherwise it flips out
+      
+      readButtons(buttons, buttonReset);
 
 
-    // Hard safety ceiling on the force (N) actually sent to the physical device. 
-    const double MAX_HAPTIC_OUTPUT_FORCE = 10.0;
+      // Hard safety ceiling on the force (N) actually sent to the physical device. 
+      const double MAX_HAPTIC_OUTPUT_FORCE = 100.0;
 
-    // scale by the user-configurable feedback intensity, then apply a hard
-    // safety ceiling regardless of that scale - so a spike (e.g. two atoms
-    // overlapping) can never slam the device at full force even if
-    // intensity is set to 100%
-    force = clampVectorMagnitude(force * hapticForceScale.load(), MAX_HAPTIC_OUTPUT_FORCE);
-    hapticDevice->setForce(force);
+      // scale by the user-configurable feedback intensity, then apply a hard
+      // safety ceiling regardless of that scale - so a spike (e.g. two atoms
+      // overlapping) can never slam the device at full force even if
+      // intensity is set to 100%
+      hapticDevice->setForce(clampVectorMagnitude(hapticForce * hapticForceScale.load(), MAX_HAPTIC_OUTPUT_FORCE));
+    }
+    // close  connection to haptic device
+    hapticDevice->close();
+
+    // exit haptics thread
+    simulationFinished = true;
+
+    // Close the calculator
+    delete calculatorPtr;
+    calculatorPtr = nullptr;
   }
-  // close  connection to haptic device
-  hapticDevice->close();
-
-  // exit haptics thread
-  simulationFinished = true;
-
-  // Close the calculator
-  delete calculatorPtr;
-  calculatorPtr = nullptr;
+  
 }
 
 // Starts the background haptics thread used for simulation updates.
@@ -1537,9 +1528,12 @@ void runGraphicsLoop(cWorld* world, GLFWwindow* mainWindow, GLFWwindow* sliderWi
       // produced no visible change. Using the fixed value directly makes the whole
       // slider range (including the new slower minimum) actually take effect.
       freqCounterHaptics.signal(1);
-      
-      std::cout << simulationTimeStep.load() << std::endl;
+
       stepSimulation(cVector3d(0.0, 0.0, 0.0), simulationTimeStep.load() / ASE_UNITS_TO_FS, false);
+    } else {
+      cVector3d hapticPosition;
+      hapticDevice->getPosition(hapticPosition);
+      hapticForce = stepSimulation(hapticPosition, simulationTimeStep.load() / ASE_UNITS_TO_FS, true);
     }
     updateGraphics(world); // render graphics
     glfwSwapBuffers(mainWindow); // swap buffers
