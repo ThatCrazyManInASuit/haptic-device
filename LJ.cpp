@@ -42,6 +42,7 @@
 #include "potentials.h"
 #include "utility.h"
 #include "boundaryConditions.h"
+#include "customHapticDevice.h"
 //------------------------------------------------------------------------------
 #include <GLFW/glfw3.h>
 #include <math.h>
@@ -785,6 +786,17 @@ void initializeHapticDevice() {
   if (handler->getNumDevices() > 0) {
     handler->getDevice(hapticDevice, 0);
   }
+#ifndef _WIN32
+  if (!hapticDevice) {
+    // No CHAI3D-recognized device (e.g. Falcon) found - fall back to the
+    // custom 1-DOF capstan device (see customHapticDevice.h and
+    // firmware/haptic_motor_controller) if the user opted in via env var.
+    const char *serialPort = getenv("HAPTIC_DEVICE_SERIAL_PORT");
+    if (serialPort != nullptr) {
+      hapticDevice = std::make_shared<CustomHapticDevice>(serialPort);
+    }
+  }
+#endif
   if (hapticDevice) {
     // retrieve the highest stiffness this device can render
     hapticDeviceMaxStiffness = hapticDevice->getSpecifications().m_maxLinearStiffness;

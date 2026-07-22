@@ -37,6 +37,14 @@ set(HAPTIC_DEVICE_SOURCES
   utility.cpp
 )
 
+# Custom 1-DOF serial haptic device uses termios - POSIX only.
+if(NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
+  list(APPEND HAPTIC_DEVICE_SOURCES
+    customHapticDevice.cpp
+    hapticDeviceSerial.cpp
+  )
+endif()
+
 add_executable(haptic-device ${HAPTIC_DEVICE_SOURCES})
 
 target_compile_features(haptic-device PRIVATE cxx_std_11)
@@ -46,6 +54,19 @@ target_include_directories(haptic-device PRIVATE
   ${CHAI3D_INCLUDE_DIRS}
   ${GLFW_INCLUDE_DIRS}
 )
+
+# chai3dConfig.cmake's CHAI3D_DEFINITIONS is always empty (upstream gap) even
+# though CHAI3D's own headers switch on these per-platform macros (e.g.
+# CShapeCylinder.h's OpenGL/glu.h vs GL/glu.h branch) - set them ourselves so
+# consumers of the installed package see the same defines the library itself
+# was built with.
+if(CMAKE_SYSTEM_NAME MATCHES "Windows")
+  target_compile_definitions(haptic-device PRIVATE WIN32)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  target_compile_definitions(haptic-device PRIVATE MACOSX)
+else()
+  target_compile_definitions(haptic-device PRIVATE LINUX)
+endif()
 
 target_link_directories(haptic-device PRIVATE ${CHAI3D_LIBRARY_DIRS})
 

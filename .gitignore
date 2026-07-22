@@ -34,6 +34,12 @@
 *.out
 *.app
 
+# ad-hoc test binaries compiled directly from tools/*.cpp (extensionless, so
+# they don't match the patterns above)
+/haptic_serial_test
+/chai3d_device_test
+/chai3d_visualizer
+
 # python stuff
 __pycache__
 *.pyc
