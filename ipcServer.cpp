@@ -66,8 +66,8 @@ string buildStatus() {
   size_t atomCount;
   {
     lock_guard<recursive_mutex> lock(sceneMutex);
-    atomCount = spheres.size();
-    for (Atom *atom : spheres) {
+    atomCount = atoms.size();
+    for (Atom *atom : atoms) {
       if (atom->isAnchor()) {
         anchored++;
       }

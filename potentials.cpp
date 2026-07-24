@@ -143,11 +143,11 @@ namespace {
 
     // Converts atom positions from display space back to ASE coordinates
     // by reversing the distance scale and re-adding the world center offset.
-    std::vector<double> flattenPositions(const std::vector<Atom *> &spheres) {
+    std::vector<double> flattenPositions(const std::vector<Atom *> &atoms) {
         std::vector<double> positions;
-        positions.reserve(spheres.size() * 3);
-        for (const Atom *sphere : spheres) {
-            cVector3d pos = sphere->getLocalPos();
+        positions.reserve(atoms.size() * 3);
+        for (const Atom *atom : atoms) {
+            cVector3d pos = atom->getLocalPos();
             positions.push_back(pos.x() / DIST_SCALE + centerCoords[0]);
             positions.push_back(pos.y() / DIST_SCALE + centerCoords[1]);
             positions.push_back(pos.z() / DIST_SCALE + centerCoords[2]);
@@ -155,11 +155,11 @@ namespace {
         return positions;
     }
 
-    std::vector<int> collectAtomicNumbers(const std::vector<Atom *> &spheres) {
+    std::vector<int> collectAtomicNumbers(const std::vector<Atom *> &atoms) {
         std::vector<int> numbers;
-        numbers.reserve(spheres.size());
-        for (const Atom *sphere : spheres) {
-            numbers.push_back(sphere->getAtomicNumber());
+        numbers.reserve(atoms.size());
+        for (const Atom *atom : atoms) {
+            numbers.push_back(atom->getAtomicNumber());
         }
         return numbers;
     }
@@ -455,7 +455,7 @@ namespace {
     // Builds the ASE Atoms object from the current atom configuration and attaches
     // the calculator to it. This only runs once; on subsequent frames we update
     // positions in-place rather than rebuilding the whole object.
-    PyObject* initializeCalculator(const std::vector<Atom *> &spheres,
+    PyObject* initializeCalculator(const std::vector<Atom *> &atoms,
                                    const std::array<double, 9> &cellMatrix,
                                    const std::array<int, 3> &periodicBoundaryConditions) {
         PyGILState_STATE gilState = PyGILState_Ensure();
@@ -470,10 +470,10 @@ namespace {
 
         // Build each piece of the Atoms constructor call separately,
         // then pack them into the kwargs dict.
-        PyObject *numbersObject = buildNumbersList(collectAtomicNumbers(spheres));
+        PyObject *numbersObject = buildNumbersList(collectAtomicNumbers(atoms));
         PyObject *cellObject = buildCellList(cellMatrix);
         PyObject *pbcObject = buildPbcList(periodicBoundaryConditions);
-        PyObject *positionsObject = buildPositionsList(flattenPositions(spheres));
+        PyObject *positionsObject = buildPositionsList(flattenPositions(atoms));
 
         PyDict_SetItemString(atomsKwargs, "numbers", numbersObject);
         PyDict_SetItemString(atomsKwargs, "cell", cellObject);
@@ -518,21 +518,16 @@ namespace {
     // On the first call, the Atoms object is created. On every subsequent call,
     // only positions are updated; rebuilding Atoms each frame would be too slow
     // and would also reset internal calculator state (e.g. neighbor lists).
-    std::vector<std::vector<double>> runAseCalculation(const std::vector<Atom *> &spheres,
-                                                       const std::string &moduleName,
-                                                       const std::string &className,
-                                                       const std::string &kwargsText,
-                                                       const std::array<double, 9> &cellMatrix,
-                                                       const std::array<int, 3> &periodicBoundaryConditions)
-    {
+    std::vector<std::vector<double>> runAseCalculation(const std::vector<Atom *> &atoms,
+            const std::string &moduleName, const std::string &className,
+            const std::string &kwargsText, const std::array<double, 9> &cellMatrix,
+            const std::array<int, 3> &periodicBoundaryConditions) {
         PyGILState_STATE gilState = PyGILState_Ensure();
-
         if (atomsObject == nullptr) {
-            atomsObject = initializeCalculator(spheres, cellMatrix, periodicBoundaryConditions);
+            atomsObject = initializeCalculator(atoms, cellMatrix, periodicBoundaryConditions);
         }
-
         // Push the latest atom positions into the existing Atoms object.
-        PyObject *positionsObject = buildPositionsList(flattenPositions(spheres));
+        PyObject *positionsObject = buildPositionsList(flattenPositions(atoms));
         PyObject* result = PyObject_CallMethod(atomsObject, "set_positions", "O", positionsObject);
         Py_XDECREF(result);
 
@@ -546,8 +541,7 @@ namespace {
         }
 
         PyObject *energyObject = PyObject_CallMethod(atomsObject, "get_potential_energy", nullptr);
-        if (energyObject == nullptr)
-        {
+        if (energyObject == nullptr) {
             Py_DECREF(forcesObject);
             failWithPythonError("Failed to evaluate ASE potential energy.");
         }
@@ -556,21 +550,18 @@ namespace {
         PyObject *forceRows =
             PySequence_Fast(forcesObject, "ASE get_forces() result must be a sequence.");
         Py_DECREF(forcesObject);
-        if (forceRows == nullptr)
-        {
+        if (forceRows == nullptr) {
             Py_DECREF(energyObject);
             failWithPythonError("Failed to inspect ASE force rows.");
         }
 
         std::vector<std::vector<double>> returnVector;
-        returnVector.reserve(spheres.size() + 1);
+        returnVector.reserve(atoms.size() + 1);
         PyObject **rowItems = PySequence_Fast_ITEMS(forceRows);
-        for (Py_ssize_t atomIndex = 0; atomIndex < PySequence_Fast_GET_SIZE(forceRows); ++atomIndex)
-        {
+        for (Py_ssize_t atomIndex = 0; atomIndex < PySequence_Fast_GET_SIZE(forceRows); ++atomIndex) {
             PyObject *rowSequence =
-                PySequence_Fast(rowItems[atomIndex], "Each ASE force row must be a sequence.");
-            if (rowSequence == nullptr)
-            {
+                    PySequence_Fast(rowItems[atomIndex], "Each ASE force row must be a sequence.");
+            if (rowSequence == nullptr) {
                 Py_DECREF(forceRows);
                 Py_DECREF(energyObject);
                 failWithPythonError("Failed to inspect ASE force components.");
@@ -590,7 +581,6 @@ namespace {
         returnVector.push_back({PyFloat_AsDouble(energyObject)});
         Py_DECREF(energyObject);
         PyGILState_Release(gilState);
-
         return returnVector;
     }
 
@@ -902,24 +892,24 @@ AseStructureData loadAseStructure(const std::string &filename,
 // It's more physically accurate than LJ for bonds that can actually break.
 
 // Returns per-atom force vectors and the total potential energy (appended as the last element).
-vector<vector<double>> morseCalculator::getFandU(vector<Atom *> &spheres)
+vector<vector<double>> morseCalculator::getFandU(vector<Atom *> &atoms)
 {
     vector<vector<double>> returnVector;
     double potentialEnergy = 0;
     Atom *current;
-    for (int i = 0; i < spheres.size(); i++)
+    for (int i = 0; i < atoms.size(); i++)
     {
         cVector3d force;
-        current = spheres[i];
+        current = atoms[i];
         cVector3d pos0 = current->getLocalPos();
         force.zero();
 
         // Sum contributions from every other atom.
-        for (int j = 0; j < spheres.size(); j++)
+        for (int j = 0; j < atoms.size(); j++)
         {
             if (i != j)
             {
-                cVector3d pos1 = spheres[j]->getLocalPos();
+                cVector3d pos1 = atoms[j]->getLocalPos();
 
                 // Unit vector from j toward i, defines the direction of the force on atom i.
                 cVector3d dir01 = cNormalize(pos0 - pos1);
@@ -965,23 +955,23 @@ double morseCalculator::getMorseForce(double distance)
 // It's fast to compute but less physical than Morse for covalent bonds.
 
 // Returns per-atom force vectors and the total potential energy (appended as the last element).
-vector<vector<double>> ljCalculator::getFandU(vector<Atom *> &spheres)
+vector<vector<double>> ljCalculator::getFandU(vector<Atom *> &atoms)
 {
     vector<vector<double>> returnVector;
     double potentialEnergy = 0;
     Atom *current;
-    for (int i = 0; i < spheres.size(); i++)
+    for (int i = 0; i < atoms.size(); i++)
     {
         cVector3d force;
-        current = spheres[i];
+        current = atoms[i];
         cVector3d pos0 = current->getLocalPos();
         force.zero();
 
-        for (int j = 0; j < spheres.size(); j++)
+        for (int j = 0; j < atoms.size(); j++)
         {
             if (i != j)
             {
-                cVector3d pos1 = spheres[j]->getLocalPos();
+                cVector3d pos1 = atoms[j]->getLocalPos();
 
                 cVector3d dir01 = cNormalize(pos0 - pos1);
 
@@ -1045,6 +1035,6 @@ void aseCalculator::setTemperature(double temperatureValue) {
     }
 }
 
-std::vector<std::vector<double>> aseCalculator::getFandU(std::vector<Atom *> &spheres) {
-    return runAseCalculation(spheres, calculatorModule, calculatorClass, calculatorKwargs, cell, pbc);
+std::vector<std::vector<double>> aseCalculator::getFandU(std::vector<Atom *> &atoms) {
+    return runAseCalculation(atoms, calculatorModule, calculatorClass, calculatorKwargs, cell, pbc);
 }

@@ -104,7 +104,7 @@ static void selectAtomsInBox() {
   const double top = std::max(selectionStartY, selectionCurrentY);
 
   bool anySelected = false;
-  for (Atom *atom : spheres) {
+  for (Atom *atom : atoms) {
     double screenX = 0.0;
     double screenY = 0.0;
     bool inside = projectAtomToScreen(atom, screenX, screenY) &&
@@ -115,7 +115,7 @@ static void selectAtomsInBox() {
   }
 
   if (anySelected) {
-    for (Atom *atom : spheres) {
+    for (Atom *atom : atoms) {
       atom->setCurrent(false);
     }
   }
@@ -142,9 +142,9 @@ void toggleFullscreen(GLFWwindow* window) {
 
 void unanchorAtoms() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  for (auto i{0}; i < spheres.size(); i++) {
-    if (spheres[i]->isAnchor()) {
-      spheres[i]->setAnchor(false);
+  for (auto i{0}; i < atoms.size(); i++) {
+    if (atoms[i]->isAnchor()) {
+      atoms[i]->setAnchor(false);
     }
   }
   assert(just_unanchored = 5);
@@ -159,7 +159,7 @@ void saveScreenshot() {
   camera->copyImageBuffer(image);
   scope->setShowEnabled(true);
   int index = 0;
-  string filename_stem = "lj" + to_string(spheres.size()) + "_";
+  string filename_stem = "lj" + to_string(atoms.size()) + "_";
   while (fileExists(filename_stem + to_string(index) + ".png")) {
     index++;
   }
@@ -200,9 +200,9 @@ void saveConFile() {
 
 void anchorAtoms() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  for (auto i{0}; i < spheres.size(); i++) {
-    if (!spheres[i]->isAnchor() && !(spheres[i]->isCurrent())) {
-      spheres[i]->setAnchor(true);
+  for (auto i{0}; i < atoms.size(); i++) {
+    if (!atoms[i]->isAnchor() && !(atoms[i]->isCurrent())) {
+      atoms[i]->setAnchor(true);
     }
   }
 }
@@ -283,17 +283,17 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
   } else if (a_key == GLFW_KEY_3 && a_action == GLFW_PRESS) {  // toggle bond rendering
     renderBonds = !renderBonds;
   } else if (a_key == GLFW_KEY_I) {  // move current atom up
-    moveCurrentAtom(0, 1, 0);
+    relCamApplyForceToCurrent(chai3d::cVector3d(0, 1, 0));
   } else if (a_key == GLFW_KEY_K) {  // move current atom down
-    moveCurrentAtom(0, -1, 0);
+    relCamApplyForceToCurrent(chai3d::cVector3d(0, -1, 0));
   } else if (a_key == GLFW_KEY_J) {  // move current atom left
-    moveCurrentAtom(-1, 0, 0);
+    relCamApplyForceToCurrent(chai3d::cVector3d(-1, 0, 0));
   } else if (a_key == GLFW_KEY_L) {  // move current atom right
-    moveCurrentAtom(1, 0, 0);
+    relCamApplyForceToCurrent(chai3d::cVector3d(1, 0, 0));
   } else if (a_key == GLFW_KEY_O) {  // move current atom forward (away from camera)
-    moveCurrentAtom(0, 0, 1);
+    relCamApplyForceToCurrent(chai3d::cVector3d(0, 0, 1));
   } else if (a_key == GLFW_KEY_P) {  // move current atom backward (toward camera)
-    moveCurrentAtom(0, 0, -1);
+    relCamApplyForceToCurrent(chai3d::cVector3d(0, 0, -1));
   } else if (a_key == GLFW_KEY_C) {  // save atoms to con file
     std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     ofstream writeFile;
@@ -345,18 +345,18 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
     showDebug = !showDebug;
   } else if (a_key == GLFW_KEY_T) {
     std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-    for (int i = 0; i < spheres.size(); i++) {
-      spheres[i]->setLocalPos(initialPositions[i]);
-      spheres[i]->setVelocity(0);
+    for (int i = 0; i < atoms.size(); i++) {
+      atoms[i]->setLocalPos(initialPositions[i]);
+      atoms[i]->setVelocity(0);
     }
   } else if (a_key == GLFW_KEY_F1) {
     if (!transparentAtoms) {
-      for (int i = 0; i < spheres.size(); i++) {
-        spheres[i]->setTransparencyLevel(0.0);
+      for (int i = 0; i < atoms.size(); i++) {
+        atoms[i]->setTransparencyLevel(0.0);
       }
     } else {
-      for (int i = 0; i < spheres.size(); i++) {
-        spheres[i]->setTransparencyLevel(1.0);
+      for (int i = 0; i < atoms.size(); i++) {
+        atoms[i]->setTransparencyLevel(1.0);
       }
     }
     transparentAtoms = !transparentAtoms;
@@ -484,18 +484,18 @@ void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
 
 void anchorAllAtoms() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  for (auto i{0}; i < spheres.size(); i++) {
-    if (!spheres[i]->isAnchor() && !(spheres[i]->isCurrent())) {
-      spheres[i]->setAnchor(true);
+  for (auto i{0}; i < atoms.size(); i++) {
+    if (!atoms[i]->isAnchor() && !(atoms[i]->isCurrent())) {
+      atoms[i]->setAnchor(true);
     }
   }
 }
 
 void unanchorAllAtoms() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  for (auto i{0}; i < spheres.size(); i++) {
-    if (spheres[i]->isAnchor()) {
-      spheres[i]->setAnchor(false);
+  for (auto i{0}; i < atoms.size(); i++) {
+    if (atoms[i]->isAnchor()) {
+      atoms[i]->setAnchor(false);
     }
   }
 }
