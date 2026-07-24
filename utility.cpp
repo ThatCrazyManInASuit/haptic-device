@@ -172,11 +172,11 @@ void writeToCon(std::string fileName) {
   writeFile.precision(7);
   writeFile << centerCoords[0] << " " << centerCoords[1] << " "
   << centerCoords[2] << " 0 0" << endl;
-    writeFile << (pos.x() / 0.02) + centerCoords[0] << " "
-    << (pos.y() / 0.02) + centerCoords[1] << " "
-    << (pos.z() / 0.02) + centerCoords[2] << " 0 " << i << endl;
   for (int i = 1; i < atoms.size(); i++) {
     chai3d::cVector3d pos = atoms[i]->getLocalPos();
+    writeFile << (pos.x() / DIST_SCALE) + centerCoords[0] << " "
+    << (pos.y() / DIST_SCALE) + centerCoords[1] << " "
+    << (pos.z() / DIST_SCALE) + centerCoords[2] << " 0 " << i << endl;
   }
   writeFile.close();
 }
