@@ -5,6 +5,10 @@
 # UMA construction here via uma_wrapper, while get_values is a self-contained
 # Python path that builds an Atoms object and returns forces/energy directly.
 
+import sys
+sys.stdout.reconfigure(line_buffering=True)
+print("LOADED", __file__, flush=True)
+
 from importlib import import_module
 from ast import literal_eval
 
@@ -20,37 +24,132 @@ USERNAME = "sc73369"
 REMOTE_PYTHON = f"/home/{USERNAME}/uma_env/bin/python3"
 NUM_SHARDS = 1
 
+import threading
+import time
+from collections import defaultdict
+
+class GPUMonitor:
+    def __init__(self, ssh, jobid, username, interval_ms=500):
+        self.ssh = ssh
+        self.jobid = jobid
+        self.interval_ms = interval_ms
+        self._lock = threading.Lock()
+        self._samples = defaultdict(list)   # index -> [(util, used, total, name), ...]
+        self._stop = threading.Event()
+        self._thread = None
+        self._stdout = None
+        self._t0 = self._t1 = None
+
+    def start(self):
+        query = "index,name,utilization.gpu,memory.used,memory.total"
+        cmd = (f"srun --jobid={self.jobid} --overlap "
+               f"nvidia-smi --query-gpu={query} "
+               f"--format=csv,noheader,nounits -lms {self.interval_ms}")
+        _, self._stdout, _ = self.ssh.exec_command(cmd)
+        self._t0 = time.time()
+        self._thread = threading.Thread(target=self._read_loop, daemon=True)
+        self._thread.start()
+        return self
+
+    def _read_loop(self):
+        for line in iter(self._stdout.readline, ""):
+            if self._stop.is_set():
+                break
+            parts = [p.strip() for p in line.strip().split(",")]
+            if len(parts) != 5:
+                continue  # skip blanks / warnings
+            try:
+                idx, name = int(parts[0]), parts[1]
+                util, used, total = float(parts[2]), float(parts[3]), float(parts[4])
+            except ValueError:
+                continue
+            with self._lock:
+                self._samples[idx].append((util, used, total, name))
+
+    def stop(self):
+        self._stop.set()
+        self._t1 = time.time()
+        try:
+            self._stdout.channel.close()   # closes this channel only, keeps ssh alive
+        except Exception:
+            pass
+        if self._thread:
+            self._thread.join(timeout=2)
+        return self.average()
+
+    def average(self):
+        with self._lock:
+            gpus = {}
+            for idx, s in self._samples.items():
+                if not s:
+                    continue
+                utils = [x[0] for x in s]
+                useds = [x[1] for x in s]
+                gpus[idx] = {
+                    "name": s[-1][3],
+                    "n_samples": len(s),
+                    "util_percent_avg": sum(utils) / len(utils),
+                    "util_percent_max": max(utils),
+                    "mem_used_mib_avg": sum(useds) / len(useds),
+                    "mem_used_mib_max": max(useds),
+                    "mem_total_mib": s[-1][2],
+                }
+            dur = (self._t1 or time.time()) - self._t0
+            return {"duration_s": dur, "gpus": gpus}
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *exc):
+        self.stop()
+
 class Atoms:
     def __init__(self, **kwargs):
+        print("Initializing...", flush=True)
         self.num_atoms = len(kwargs["numbers"])
         self.ssh = paramiko.SSHClient()
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self.ssh.connect(hostname="saskatchewan.cm.utexas.edu", username=USERNAME)
+
+        print("Preconnecting...", flush=True)
+        self.ssh.connect(
+            hostname="saskatchewan.cm.utexas.edu",
+            username=USERNAME,
+            timeout=10,
+            banner_timeout=10,
+            auth_timeout=10,
+        )
+        print("Connected! Opening SFTP...", flush=True)
+
         sftp = self.ssh.open_sftp()
+        print("SFTP Open! Uploading server scripts...", flush=True)
         sftp.put("../haptic-device/server.py", f"/home/{USERNAME}/.cache/server.py")
         sftp.close()
-        self.stdin, self.stdout, self.stderr = self.ssh.exec_command(f"bash -l -c 'srun --gres=shard:{NUM_SHARDS} {REMOTE_PYTHON} -u /home/{USERNAME}/.cache/server.py'", get_pty=False)
-        
-        
-        print("Waiting for server to be ready...")
+        print("Uploaded submitting job...", flush=True)
+
+        self.stdin, self.stdout, self.stderr = self.ssh.exec_command(
+            f"bash -l -c 'srun --gres=gpu:1 {REMOTE_PYTHON} -u /home/{USERNAME}/.cache/server.py'",
+            get_pty=False,
+        )
+        print("Waiting for job to run (this might take a while)...", flush=True)
+
+        self.jobid = None
         while True:
             line = self.stdout.readline()
-            if line == "":  # EOF — server exited before signaling ready
+            if line == "":
                 err = self.stderr.read().decode(errors="replace")
-                raise RuntimeError(
-                    "server.py exited before becoming ready:\n" + err
-                )
-            print(line.strip())
+                raise RuntimeError("server.py exited before becoming ready:\n" + err)
+            print("server:", line.strip(), flush=True)
+            if line.startswith("JOBID"):
+                self.jobid = line.split()[1]
             if "Ready to accept instructions" in line:
-                print("Server is ready")
+                print("Ready to go!", flush=True)
                 break
-
-        # only now start the background drain, for the steady-state request loop
         threading.Thread(target=self._drain, args=(self.stderr, "server"), daemon=True).start()
         data = pickle.dumps(kwargs)
         self.stdin.write(struct.pack("!I", len(data)))
         self.stdin.write(data)
         self.stdin.flush()
+        print("Initialization done!", flush=True)
 
     def _drain(self, stream, prefix):
         for line in iter(stream.readline, ""):
@@ -69,6 +168,9 @@ class Atoms:
     def get_potential_energy(self):
         data = self.stdout.read(8 + 1)[:8]
         return struct.unpack("d", data)[0]
+
+    def gpu_monitor(self, interval_ms=500):
+        return GPUMonitor(self.ssh, self.jobid, USERNAME, interval_ms)
 
 # Module-level cache of UMA predictors. Building a predictor loads a large model
 # into memory, so we keep one per (model, device) alive for the whole session
@@ -178,3 +280,4 @@ def create_calculator(spec):
         calculator_class = getattr(import_module(module_name), class_name)
 
         return calculator_class(**kwargs)
+
