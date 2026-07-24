@@ -67,9 +67,10 @@ bool HapticDeviceSerial::sendTorque(float torqueVolts) {
   }
 
   CommandFrame frame{};
-  frame.start = COMMAND_START_BYTE;
+  frame.sync0 = COMMAND_SYNC0;
+  frame.sync1 = COMMAND_SYNC1;
   frame.torque = torqueVolts;
-  frame.checksum = computeChecksum(reinterpret_cast<uint8_t *>(&frame), sizeof(frame) - 1);
+  frame.crc = crc8(reinterpret_cast<uint8_t *>(&frame), sizeof(frame) - 1);
 
   const uint8_t *bytes = reinterpret_cast<const uint8_t *>(&frame);
   ssize_t written = ::write(m_fd, bytes, sizeof(frame));
@@ -85,16 +86,28 @@ void HapticDeviceSerial::poll() {
   ssize_t n;
   while ((n = ::read(m_fd, &byte, 1)) > 0) {
     if (m_rxIndex == 0) {
-      if (byte == STATE_START_BYTE) {
+      if (byte == STATE_SYNC0) {
         m_rxBuf[m_rxIndex++] = byte;
       }
       continue;
     }
 
+    if (m_rxIndex == 1) {
+      if (byte == STATE_SYNC1) {
+        m_rxBuf[m_rxIndex++] = byte;
+      } else if (byte != STATE_SYNC0) {
+        // Not sync0 either - abandon and go back to hunting for sync0.
+        m_rxIndex = 0;
+      }
+      // else: byte == STATE_SYNC0 again - stay at index 1, treat this byte
+      // as the new sync0 candidate (m_rxBuf[0] is already STATE_SYNC0).
+      continue;
+    }
+
     m_rxBuf[m_rxIndex++] = byte;
     if (m_rxIndex == sizeof(StateFrame)) {
-      uint8_t checksum = computeChecksum(m_rxBuf, sizeof(StateFrame) - 1);
-      if (checksum == m_rxBuf[sizeof(StateFrame) - 1]) {
+      uint8_t crc = crc8(m_rxBuf, sizeof(StateFrame) - 1);
+      if (crc == m_rxBuf[sizeof(StateFrame) - 1]) {
         std::memcpy(&m_lastState, m_rxBuf, sizeof(StateFrame));
         m_hasState = true;
       }

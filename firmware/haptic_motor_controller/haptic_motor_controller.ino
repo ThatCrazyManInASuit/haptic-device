@@ -28,16 +28,25 @@ void pollCommands() {
   while (Serial.available()) {
     uint8_t b = Serial.read();
     if (rxIndex == 0) {
-      if (b == COMMAND_START_BYTE) {
+      if (b == COMMAND_SYNC0) {
         rxBuf[rxIndex++] = b;
+      }
+      continue;
+    }
+
+    if (rxIndex == 1) {
+      if (b == COMMAND_SYNC1) {
+        rxBuf[rxIndex++] = b;
+      } else if (b != COMMAND_SYNC0) {
+        rxIndex = 0;
       }
       continue;
     }
 
     rxBuf[rxIndex++] = b;
     if (rxIndex == sizeof(CommandFrame)) {
-      uint8_t checksum = computeChecksum(rxBuf, sizeof(CommandFrame) - 1);
-      if (checksum == rxBuf[sizeof(CommandFrame) - 1]) {
+      uint8_t crc = crc8(rxBuf, sizeof(CommandFrame) - 1);
+      if (crc == rxBuf[sizeof(CommandFrame) - 1]) {
         CommandFrame frame;
         memcpy(&frame, rxBuf, sizeof(frame));
         targetTorque = frame.torque;
@@ -50,10 +59,11 @@ void pollCommands() {
 
 void sendState() {
   StateFrame frame;
-  frame.start = STATE_START_BYTE;
+  frame.sync0 = STATE_SYNC0;
+  frame.sync1 = STATE_SYNC1;
   frame.angle = motor.shaft_angle;
   frame.velocity = motor.shaft_velocity;
-  frame.checksum = computeChecksum(reinterpret_cast<uint8_t *>(&frame), sizeof(frame) - 1);
+  frame.crc = crc8(reinterpret_cast<uint8_t *>(&frame), sizeof(frame) - 1);
   Serial.write(reinterpret_cast<uint8_t *>(&frame), sizeof(frame));
 }
 

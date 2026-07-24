@@ -47,7 +47,8 @@ endif()
 
 add_executable(haptic-device ${HAPTIC_DEVICE_SOURCES})
 
-target_compile_features(haptic-device PRIVATE cxx_std_11)
+# potentials.cpp uses std::filesystem, which needs C++17.
+target_compile_features(haptic-device PRIVATE cxx_std_17)
 
 target_include_directories(haptic-device PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -96,3 +97,46 @@ endif()
 set_target_properties(haptic-device PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CHAI3D_ROOT}/bin/${_chai_bin_subdir}"
 )
+
+# Standalone diagnostic tools for the custom haptic device - POSIX only, same
+# reason customHapticDevice.cpp/hapticDeviceSerial.cpp are excluded on
+# Windows above. chai3d_device_test prints raw decoded position/velocity with
+# no GLFW window; chai3d_visualizer renders a cursor tracking shaft position
+# against a fixed reference track. Both are quick sanity checks for the
+# sensor/firmware/protocol chain independent of the full LJ.cpp simulation.
+if(NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
+  add_executable(chai3d_device_test
+    tools/chai3d_device_test.cpp
+    customHapticDevice.cpp
+    hapticDeviceSerial.cpp
+  )
+  add_executable(chai3d_visualizer
+    tools/chai3d_visualizer.cpp
+    customHapticDevice.cpp
+    hapticDeviceSerial.cpp
+  )
+
+  target_link_libraries(chai3d_device_test PRIVATE ${CHAI3D_LIBRARIES})
+  target_link_libraries(chai3d_visualizer PRIVATE ${CHAI3D_LIBRARIES} ${GLFW_LIBRARIES})
+
+  foreach(_diag_target chai3d_device_test chai3d_visualizer)
+    target_compile_features(${_diag_target} PRIVATE cxx_std_11)
+    target_include_directories(${_diag_target} PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}"
+      ${CHAI3D_INCLUDE_DIRS}
+      ${GLFW_INCLUDE_DIRS}
+    )
+    target_link_directories(${_diag_target} PRIVATE ${CHAI3D_LIBRARY_DIRS})
+    if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+      target_compile_definitions(${_diag_target} PRIVATE MACOSX)
+    else()
+      target_compile_definitions(${_diag_target} PRIVATE LINUX)
+    endif()
+    # Repo root, not CHAI3D_ROOT/bin - these are ad-hoc dev tools, not part
+    # of the installed simulation. Matches the .gitignore entries already
+    # written for /chai3d_device_test and /chai3d_visualizer.
+    set_target_properties(${_diag_target} PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+  endforeach()
+endif()

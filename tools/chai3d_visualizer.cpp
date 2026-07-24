@@ -28,6 +28,8 @@ bool simulationFinished = true;
 cFrequencyCounter freqCounterGraphics;
 cFrequencyCounter freqCounterHaptics;
 cThread *hapticsThread;
+double lastPositionX = 0.0; // written by the haptics thread, read by graphics -
+                             // a torn read is harmless for this display-only value
 
 GLFWwindow *window = nullptr;
 int windowW = 0, windowH = 0;
@@ -67,11 +69,13 @@ void renderHaptics(void) {
     cVector3d position;
     hapticDevice->getPosition(position);
     cursor->setLocalPos(position);
+    lastPositionX = position.x();
 
-    // no cable/capstan attached yet - just visualize, don't push back.
-    cVector3d force(0, 0, 0);
-    cVector3d torque(0, 0, 0);
-    hapticDevice->setForceAndTorqueAndGripperForce(force, torque, 0.0);
+    // Pure visualization, no force feedback - and critically, do NOT send a
+    // CommandFrame here. This loop runs unthrottled (can exceed 1M Hz), and
+    // sendTorque() writes a CommandFrame over the same USB-serial link the
+    // Arduino uses to report state; flooding it at that rate was starving/
+    // corrupting the state stream, which looked like the sensor being frozen.
 
     freqCounterHaptics.signal(1);
   }
@@ -84,7 +88,8 @@ void renderGraphics(void) {
   int displayH = viewport->getDisplayHeight();
 
   labelRates->setText(cStr(freqCounterGraphics.getFrequency(), 0) + " Hz / " +
-                       cStr(freqCounterHaptics.getFrequency(), 0) + " Hz");
+                       cStr(freqCounterHaptics.getFrequency(), 0) + " Hz   x=" +
+                       cStr(lastPositionX, 4) + " m");
   labelRates->setLocalPos((int)(0.5 * (displayW - labelRates->getWidth())), 15);
 
   world->updateShadowMaps(false, false);
@@ -169,8 +174,11 @@ int main(int argc, char *argv[]) {
   light->setDir(0.0, 1.0, -0.5);
 
   // Fixed reference track along X so the cursor's motion has something to
-  // move against - metersPerRadian in customHapticDevice.h maps the full
-  // +/-pi shaft range to roughly +/-0.063m, so +/-0.1m comfortably brackets it.
+  // move against - metersPerRadian in customHapticDevice.h maps about
+  // +/-5 rad of shaft rotation onto this +/-0.1m span. shaft_angle
+  // accumulates without wrapping, so sustained cranking easily exceeds this
+  // and pushes the cursor off-track - the on-screen x= readout (not just the
+  // ball position) is the reliable way to confirm motion is being tracked.
   track = new cShapeLine(cVector3d(-0.1, 0.0, 0.0), cVector3d(0.1, 0.0, 0.0));
   track->m_colorPointA.setGrayLevel(0.4f);
   track->m_colorPointB.setGrayLevel(0.4f);

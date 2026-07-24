@@ -60,10 +60,13 @@ bool CustomHapticDevice::close() {
 
 bool CustomHapticDevice::calibrate(bool a_forceCalibration) {
   (void)a_forceCalibration;
-  // Sensor alignment already happens in firmware's initFOC(); just wait
-  // briefly for the first StateFrame so getPosition() doesn't report a stale
-  // zero on the first read.
-  for (int i = 0; i < 200 && !m_serial.hasState(); i++) {
+  // Opening the serial port triggers a DTR reset on the Arduino, so the
+  // firmware reboots and has to rerun motor.initFOC()'s self-driven
+  // calibration (open-loop spin for direction-finding, plus electrical zero
+  // alignment) before it sends its first real StateFrame - that alone can
+  // take 3+ seconds. Wait comfortably longer than that so we don't zero
+  // against a stale/default (0.0) reading while the board is still rebooting.
+  for (int i = 0; i < 1600 && !m_serial.hasState(); i++) {
     m_serial.poll();
     cSleepMs(5);
   }

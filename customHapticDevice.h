@@ -45,9 +45,13 @@ private:
   // reports motion relative to this reference rather than the raw angle.
   float m_referenceAngle;
 
-  // Capstan/cable calibration - PLACEHOLDERS until the mechanism is attached
-  // and its real range of motion / force transmission is measured.
-  static constexpr double metersPerRadian = 0.02;
+  // Capstan/cable calibration. metersPerRadian = drum radius (arc length
+  // s = r*theta): 32mm drum diameter / 2 = 16mm = 0.016m, direct-drive on
+  // the motor shaft with no additional gear/pulley reduction stage.
+  // newtonsPerVolt is still a PLACEHOLDER - retune once real force output is
+  // measured (it scales inversely with the same drum radius: smaller radius
+  // means more force per volt, larger radius means less).
+  static constexpr double metersPerRadian = 0.016;
   static constexpr double newtonsPerVolt = 1.0;
 };
 
