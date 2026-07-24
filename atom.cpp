@@ -198,7 +198,9 @@ Atom::Atom(double radius, int atomicNum) : chai3d::cShapeSphere(radius) {
  * @brief Returns if the atom is anchor
  * @return true if the atom is anchored, false otherwise
  */
-bool Atom::isAnchor() { return anchor; }
+bool Atom::isAnchor() { 
+    return anchor; 
+}
 
 /**
  * @brief Sets if the atom should be anchored
@@ -216,7 +218,9 @@ void Atom::setAnchor(bool newAnchor) {
  * @brief Returns if the atom is current
  * @return true if the atom is current, false otherwise
  */
-bool Atom::isCurrent() { return current; }
+bool Atom::isCurrent() { 
+    return current; 
+}
 
 /**
  * @brief Sets if the atom should be current
@@ -234,7 +238,9 @@ void Atom::setCurrent(bool newCurrent) {
  * @brief Returns if the atom is repeating
  * @return true if the atom is repeating, false otherwise
  */
-bool Atom::isRepeating() { return repeating; }
+bool Atom::isRepeating() { 
+    return repeating; 
+}
 
 /**
  * @brief Sets if the atom should be repeating
@@ -252,7 +258,9 @@ void Atom::setRepeating(bool newRepeat) {
  * @brief Returns if the atom is selected
  * @return true if the atom is selected, false otherwise
  */
-bool Atom::isSelected() { return selected; }
+bool Atom::isSelected() { 
+    return selected; 
+}
 
 /**
  * @brief Sets if the atom should be selected
@@ -267,19 +275,25 @@ void Atom::setSelected(bool newSelected) {
  * @brief Gets the velocity of the atom
  * @return the velocity of the atom in world units. One world unit is 50 Å.
  */
-chai3d::cVector3d Atom::getVelocity() { return velocity; }
+chai3d::cVector3d Atom::getVelocity() { 
+    return velocity; 
+}
 
 /**
  * @brief Sets the velocity of the atom in world units.
  * @param newVel the velocity of the atom in world units. One world unit is 50 Å.
  */
-void Atom::setVelocity(chai3d::cVector3d newVel) { velocity = newVel; }
+void Atom::setVelocity(chai3d::cVector3d newVel) { 
+    velocity = newVel; 
+}
 
 /**
  * @brief Gets the force applied to the atom
  * @return the force applied to the atom in eV/Å
  */
-chai3d::cVector3d Atom::getForce() { return force; }
+chai3d::cVector3d Atom::getForce() { 
+    return force; 
+}
 
 /**
  * @brief Sets the force applied to the atom
@@ -303,13 +317,17 @@ cVector3d Atom::getPrevForce() {
  * @brief Gets the velocity vector of the atom as a rendered line
  * @return the velocity vector of the atom as a rendered line
  */
-cShapeLine* Atom::getVelVector() { return velVector; }
+cShapeLine* Atom::getVelVector() { 
+    return velVector; 
+}
 
 /**
  * @brief Sets the rendered velocity vector of the atom
  * @param newVelVector The new rendered velocity vector of the atom
  */
-void Atom::setVelVector(cShapeLine* newVelVector) { velVector = newVelVector; }
+void Atom::setVelVector(cShapeLine* newVelVector) { 
+    velVector = newVelVector;
+}
 
 /**
  * @brief Update the atom's rendered velocity vector
@@ -345,14 +363,34 @@ void Atom::setColor(cColorf color) {
     }
 }
 
-int Atom::getAtomicNumber() const { return atomicNumber; }
+/**
+ * @brief Gets the atomic number of the atom
+ * @return the atomic number of the atom
+ */
+int Atom::getAtomicNumber() const { 
+    return atomicNumber;
+}
 
-void Atom::setAtomicNumber( int num ) { atomicNumber = num; }
+/**
+ * @brief Sets the atomic number of the atom
+ * @param num the atomic number of the atom to set to
+ */
+void Atom::setAtomicNumber(int num) {
+    atomicNumber = num;
+}
 
+/**
+ * @brief Gets the chemical symbol of the atom
+ * @return the chemical symbol of the atom
+ */
 string Atom::getElement() {
     return ATOM_STRINGS[atomicNumber];
 }
 
+/**
+ * @brief Gets the mass of the atom
+ * @return the atomic mass of the atom in atomic mass units (amu)
+ */
 double Atom::getMass() {
     return ATOM_WEIGHTS[atomicNumber];
 }
