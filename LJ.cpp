@@ -666,40 +666,8 @@ void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::arra
     placeAtomsAse(world, aseCell, asePbc, texture, argc, argv);
 
   // Done reading any sort of info.
-  for (int i = 0; i < spheres.size(); i++) {
-    spheres[i]->setVelocity(0);
-  }
-}
-
-// Places a new atom in a non-overlapping random position.
-void initializeAtomPosition(Atom *new_atom) {
-  bool inside_atom = true;
-  auto iter{0};
-  while (inside_atom) {
-    if (iter <= 1000) {
-      // Place atom at a random position
-      new_atom->setInitialPosition();
-    } else {
-      // If there are too many failed attempts at placing the atom increase the radius in
-      // which it can spawn
-      new_atom->setInitialPosition(.115);
-    }
-    // Check that it doesn't collide with any others
-    bool collision_detected = false;
-    for (auto i{0}; i < spheres.size(); i++) {
-      if (new_atom != spheres[i]) {
-        auto dist_between = cDistance(new_atom->getLocalPos(), spheres[i]->getLocalPos());
-        if (dist_between < SPHERE_RADIUS * 2) {
-          // The number dist between is being compared to is the threshold for collision
-          collision_detected = true;
-          iter++;
-          break;
-        }
-      }
-    }
-    if (!collision_detected){
-      inside_atom = false;
-    }
+  for (int i = 0; i < atoms.size(); i++) {
+    atoms[i]->setVelocity(0);
   }
 }
 
