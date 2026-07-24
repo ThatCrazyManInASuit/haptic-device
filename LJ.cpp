@@ -60,9 +60,6 @@ std::vector<cVector3d> initialPositions;
 // Based on the covalent radius of hydrogen, .37 Å
 const double SPHERE_RADIUS = 0.37 * DIST_SCALE;
 
-// Scales the effective mass of each atom in the toy dynamics model.
-const double SPHERE_MASS_SCALE_FACTOR = 0.02;
-
 // Haptic spring-damper constants used to reduce unwanted oscillations.
 const double K_HAPTIC_SPRING = 100.0;
 const double K_HAPTIC_DAMPER = 5.0;    // Damping for force modendLines
