@@ -17,12 +17,11 @@ private:
     cVector3d prevForce;
     cShapeLine *velVector;
     int atomicNumber;
-    cColorf base_color;
+    cColorf color;
 
     void refreshMaterial();
 
 public:
-    Atom(double radius, int atomicNumber, cColorf color);
     Atom(double radius, int atomicNumber);
     bool isAnchor();
     void setAnchor(bool newAnchor);
@@ -40,7 +39,6 @@ public:
     cShapeLine *getVelVector();
     void setVelVector(cShapeLine *newVelVector);
     void updateVelVector();
-    void setInitialPosition(double spawn_dist = .1);
     void setColor(cColorf color);
     int getAtomicNumber() const;
     void setAtomicNumber(int num);
