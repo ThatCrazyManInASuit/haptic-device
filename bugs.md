@@ -41,7 +41,7 @@ Status:
 
 Problem:
 - The button-1 scan still has no termination condition.
-- If every candidate atom is anchored, the `while (spheres[simulatedCurrentAtom]->isAnchor())` loop can spin forever.
+- If every candidate atom is anchored, the `while (atoms[simulatedCurrentAtom]->isAnchor())` loop can spin forever.
 
 # Open Issue 4: `u` Hotkey Still Has Assignment Inside `assert`
 
