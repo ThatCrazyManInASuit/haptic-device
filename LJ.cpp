@@ -1094,6 +1094,10 @@ cVector3d stepSimulation(const cVector3d &requestedPosition, const double timeIn
       if (!isFiniteVector(force)) {
         force.zero();
       }
+      if (i == currentIndex) {
+        force += extraForces;
+        extraForces.zero();
+      }
       atom->setForce(force);
     }
     if (hasHapticDevice && useHapticInfluence) {
