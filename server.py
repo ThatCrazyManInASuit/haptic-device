@@ -10,6 +10,8 @@ import pickle
 import struct
 import time
 
+print("JOBID", os.environ.get("SLURM_JOB_ID", ""), flush=True)
+
 predictor = pretrained_mlip.get_predict_unit(
    "uma-s-1p2",
    inference_settings="turbo",
