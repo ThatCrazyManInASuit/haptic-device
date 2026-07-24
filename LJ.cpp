@@ -50,7 +50,7 @@
 const double ASE_UNITS_TO_FS = 10.18; 
 
 bool showDebug = false; // Toggles the extra debug overlay information when true.
-chai3d::cVector3d hapticForce;
+chai3d::cVector3d hapticForce; // The force applied to the haptic device
 std::vector<cLabel *> debugAtomLabels; // Stores the labels that annotate atoms with their indices.
 
 // Stores the initial atom positions so the structure can be reset.
@@ -76,7 +76,10 @@ Calculator *calculatorPtr; // The calculator used to calculate atom forces
 chai3d::cCamera *camera; // a camera to render the world in the window display
 chai3d::cGenericHapticDevicePtr hapticDevice; // a pointer to the current haptic device
 
+// The haptic mode the simulation is in.
+
 std::atomic<HapticMode> hapticMode(HapticMode::Position);
+
 
 // simulation time step in seconds; overridable at launch via
 // HAPTIC_DEVICE_TIME_STEP and changeable live via the IPC "set timestep" command
@@ -97,10 +100,10 @@ std::atomic<double> returnDelaySeconds(2.5);
 // the underlying simulation's spring/damping constants.
 std::atomic<double> hapticForceScale(1.0);
 
-// sphere objects
-std::vector<Atom *> spheres;
+// atom objects
+std::vector<Atom *> atoms;
 
-// lines drawn between bonded atom pairs, keyed by sorted (sphere index) pairs.
+// lines drawn between bonded atom pairs, keyed by sorted (atom index) pairs.
 // Lines are created lazily and hidden (not removed) when a pair un-bonds so
 // they can be cheaply re-shown if the pair drifts back within range.
 std::map<pair<int, int>, cShapeLine *> bondLines;
@@ -146,7 +149,7 @@ double global_minimum; // global minimum for the given cluster size
 
 std::atomic<bool> freezeAtoms(false); // determine if atoms should be frozen
 
-std::atomic<bool> renderAtoms(true); // determine if atom spheres should be drawn
+std::atomic<bool> renderAtoms(true); // determine if atom atoms should be drawn
 std::atomic<bool> renderForceVectors(true); // determine if force vector lines should be drawn
 std::atomic<bool> renderBonds(true); // determine if bond lines should be drawn
 double centerCoords[3] = {50.0, 50.0, 50.0}; // save coordinates of central atom
@@ -178,6 +181,8 @@ chai3d::cLabel *writeConLabel;
 
 chai3d::cVector3d hapticPosition;
 static std::vector<cVector3d> prevPositions;
+
+chai3d::cVector3d extraForces; // Miscellaneous forces; reset when applied
 
 // Prints the startup banner and key instructions for the user.
 void printIntro() {
@@ -385,7 +390,7 @@ void initializeHapticDevice() {
 // Adds labels that annotate each atom with its index.
 void initializeAtomLabels() {
   cFontPtr atomLabelFont = NEW_CFONT_CALIBRI_20();
-  for (int i = 0; i < spheres.size(); i++) {
+  for (int i = 0; i < atoms.size(); i++) {
     cLabel *label = new cLabel(atomLabelFont);
     label->m_fontColor.setBlack();
     label->setText(to_string(i));
@@ -473,7 +478,7 @@ vector<cVector3d> polyhedronCords(int k, double radius) {
   return positions;
 }
 
-// Generates positions for a Fibonacci-sphere shell with uniform coverage.
+// Generates positions for a Fibonacci-atom shell with uniform coverage.
 vector<cVector3d> fibonacciCords(int k, double radius) {
   vector<cVector3d> positions;
   positions.reserve(k);
@@ -561,14 +566,14 @@ vector<cVector3d> generateShellPositions(int k, double radiusAngstroms) {
   return fibonacciCords(k, radius);
 }
 
-// Creates and configures an atom sphere with the requested material and size.
+// Creates and configures an atom atom with the requested material and size.
 Atom* initializeAtom(cWorld* world, cTexture2dPtr texture, int atomicNumber, double radius = SPHERE_RADIUS) {
   Atom *new_atom = new Atom(radius, atomicNumber); // create a atom and define its radius
-  spheres.push_back(new_atom); // store pointer to atom
+  atoms.push_back(new_atom); // store pointer to atom
   world->addChild(new_atom); // add atom to world
   world->addChild(new_atom->getVelVector()); // add line to world
 
-  // set graphic properties of sphere
+  // set graphic properties of atom
   new_atom->setTexture(texture);
   new_atom->m_texture->setSphericalMappingEnabled(true);
   new_atom->setUseTexture(true);
@@ -655,7 +660,7 @@ void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::arra
       // initialize atom with texture and atomic number of 1 (hydrogen)
       Atom *new_atom = initializeAtom(world, texture, 1, SPHERE_RADIUS); 
       if (i == 0) {
-        new_atom->setCurrent(true); // set the first sphere to the current
+        new_atom->setCurrent(true); // set the first atom to the current
       } else {
         new_atom->setLocalPos(positions[i - 1]);
       }
@@ -828,7 +833,7 @@ void initializePotentialEnergyPlot() {
   scope->setSignalEnabled(true, true, false, false);
   scope->setTransparencyLevel(.7);
   scope->setShowEnabled(false);
-  global_minimum = getGlobalMinima(spheres.size());
+  global_minimum = getGlobalMinima(atoms.size());
   double lower_bound, upper_bound;
   if (global_minimum != 0 && (energySurface == LENNARD_JONES)) {
     if (global_minimum > -50) {
@@ -841,7 +846,7 @@ void initializePotentialEnergyPlot() {
     global_min_known = true;
   } else {
     upper_bound = 0;
-    lower_bound = static_cast<int>(spheres.size()) * -3;
+    lower_bound = static_cast<int>(atoms.size()) * -3;
     global_minimum = 0;
     global_min_known = false;
   }
@@ -882,12 +887,12 @@ void initializeHelpPanel() {
 
 vector<int> getHapticInfluencedAtomIndices() {
   vector<int> influenced;
-  for (int i = 0; i < spheres.size(); i++) {
-    if (spheres[i]->isSelected()) {
+  for (int i = 0; i < atoms.size(); i++) {
+    if (atoms[i]->isSelected()) {
       influenced.push_back(i);
     }
   }
-  if (influenced.empty() && currentIndex >= 0 && currentIndex < spheres.size()) {
+  if (influenced.empty() && currentIndex >= 0 && currentIndex < atoms.size()) {
     influenced.push_back(currentIndex);
   }
   return influenced;
@@ -1029,8 +1034,8 @@ void ensureHapticInfluenceOffsets(const vector<int> &indices,
     activeHapticInfluence = indices;
     hapticInfluenceOffsets.clear();
     for (int index : indices) {
-      if (spheres[index]->isSelected()) {
-        hapticInfluenceOffsets[index] = spheres[index]->getLocalPos() - position;
+      if (atoms[index]->isSelected()) {
+        hapticInfluenceOffsets[index] = atoms[index]->getLocalPos() - position;
       } else {
         hapticInfluenceOffsets[index] = cVector3d(0, 0, 0);
       }
@@ -1045,7 +1050,7 @@ cVector3d getAverageAtomGroupForce(const vector<int> &indices) {
     return force;
   }
   for (int index : indices) {
-    force += spheres[index]->getForce();
+    force += atoms[index]->getForce();
   }
   return force / static_cast<double>(indices.size());
 }
@@ -1059,7 +1064,7 @@ cVector3d addHapticForceToAtoms(const vector<int> &indices,
   ensureHapticInfluenceOffsets(indices, position);
   cVector3d averageForceBeforeHaptic = getAverageAtomGroupForce(indices);
   for (int index : indices) {
-    Atom *atom = spheres[index];
+    Atom *atom = atoms[index];
     if (!atom->isAnchor()) {
       cVector3d targetPosition = position + hapticInfluenceOffsets[index];
       cVector3d currentPosition = atom->getLocalPos();
@@ -1082,15 +1087,15 @@ cVector3d addHapticForceToAtoms(const vector<int> &indices,
 // Advances the atom simulation by one timestep and returns the haptic force.
 cVector3d stepSimulation(const cVector3d &requestedPosition, const double timeInterval,
                         const bool hasHapticDevice) {
-  if (prevPositions.size() != spheres.size()) {
-    prevPositions.resize(spheres.size());
+  if (prevPositions.size() != atoms.size()) {
+    prevPositions.resize(atoms.size());
   }
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  if (spheres.empty()) {
+  if (atoms.empty()) {
     return cVector3d(0.0, 0.0, 0.0);
   }
 
-  Atom *current = spheres[currentIndex];
+  Atom *current = atoms[currentIndex];
   cVector3d position = hasHapticDevice ? requestedPosition : current->getLocalPos();
   vector<int> hapticInfluencedIndices =
       hasHapticDevice ? getHapticInfluencedAtomIndices() : vector<int>();
@@ -1111,14 +1116,15 @@ cVector3d stepSimulation(const cVector3d &requestedPosition, const double timeIn
     }
     const double currentTemp = getSliderVal("Temperature", 1.00);
     // calculatorPtr->setTemperature(currentTemp);
-    vector<vector<double>> forcesVec = calculatorPtr->getFandU(spheres);
-    double potentialEnergy = forcesVec[spheres.size()][0];
+
+    vector<vector<double>> forcesVec = calculatorPtr->getFandU(atoms);
+    double potentialEnergy = forcesVec[atoms.size()][0];
     if (std::isfinite(potentialEnergy)) {
       lastPotentialEnergy = potentialEnergy;
     }
 
-    for (int i = 0; i < spheres.size(); i++) {
-      Atom *atom = spheres[i];
+    for (int i = 0; i < atoms.size(); i++) {
+      Atom *atom = atoms[i];
       cVector3d force(forcesVec[i][0], forcesVec[i][1], forcesVec[i][2]);
       if (!isFiniteVector(force)) {
         force.zero();
@@ -1128,8 +1134,8 @@ cVector3d stepSimulation(const cVector3d &requestedPosition, const double timeIn
     if (hasHapticDevice && useHapticInfluence) {
       hapticForce = addHapticForceToAtoms(hapticInfluencedIndices, position, timeInterval);
     }
-    for (int i = 0; i < spheres.size(); i++) {
-      Atom *atom = spheres[i];
+    for (int i = 0; i < atoms.size(); i++) {
+      Atom *atom = atoms[i];
       if (!atom->isAnchor()) {
         cVector3d old_position = atom->getLocalPos();
         cVector3d new_position = getNewAtomPosition(atom, prevPositions[i], timeInterval);
@@ -1141,17 +1147,17 @@ cVector3d stepSimulation(const cVector3d &requestedPosition, const double timeIn
     displayedPotentialEnergy.store(potentialEnergy);
   }
 
-  for (int i = 0; i < spheres.size(); i++) {
-    spheres[i]->updateVelVector();
+  for (int i = 0; i < atoms.size(); i++) {
+    atoms[i]->updateVelVector();
   }
 
   return hapticForce;
 }
 
 void initializePrevPositions() {
-  prevPositions.resize(spheres.size());
-  for (int i = 0; i < spheres.size(); i++) {
-    prevPositions[i] = spheres[i]->getLocalPos();
+  prevPositions.resize(atoms.size());
+  for (int i = 0; i < atoms.size(); i++) {
+    prevPositions[i] = atoms[i]->getLocalPos();
   }
 }
 
@@ -1273,10 +1279,10 @@ void updateBonds(cWorld* world) {
     }
   } else {
     set<pair<int, int>> bondedPairs;
-    int numAtoms = static_cast<int>(spheres.size());
+    int numAtoms = static_cast<int>(atoms.size());
     for (int i = 0; i < numAtoms; i++) {
       for (int j = i + 1; j < numAtoms; j++) {
-        double distance = cDistance(spheres[i]->getLocalPos(), spheres[j]->getLocalPos());
+        double distance = cDistance(atoms[i]->getLocalPos(), atoms[j]->getLocalPos());
         // Atom pairs closer than this threshold are considered bonded for rendering.
         // TODO: change BOND_DISTANCE_THRESHHOLD to be 1.2 * (R_A + R_B), where R_A and R_B are
         // covalent radii of their atoms. 
@@ -1296,8 +1302,8 @@ void updateBonds(cWorld* world) {
         line->m_colorPointB.setGrayDim();
         world->addChild(line);
       }
-      line->m_pointA = spheres[bondedPair.first]->getLocalPos();
-      line->m_pointB = spheres[bondedPair.second]->getLocalPos();
+      line->m_pointA = atoms[bondedPair.first]->getLocalPos();
+      line->m_pointB = atoms[bondedPair.second]->getLocalPos();
       line->setShowEnabled(true);
     }
 
@@ -1354,66 +1360,64 @@ void updateLabels() {
   // top of the window (rather than a fixed offset from a hypothetical taller
   // window). Row spacing shrinks if needed so every hotkey stays on-screen
   // instead of being pushed below y=0 and disappearing on shorter windows.
-  const double topMargin = 10.0;
-  const double headerReserve = 60.0;   // vertical space reserved for the header
-  const double bottomMargin = 20.0;    // keep the last row off the panel's edge
-  const double maxHelpPanelHeight = 500.0;
-  const double defaultRowSpacing = 25.0;
+  const double TOP_MARGIN = 10.0;
+  const double HEADER_RESERVE = 60.0;   // vertical space reserved for the header
+  const double BOTTOM_MARGIN = 20.0;    // keep the last row off the panel's edge
+  const double MAX_HELP_PANEL_HEIGHT = 500.0;
+  const double DEFAULT_ROW_SPACING = 25.0;
 
-  // Size and place the panel first. Its height is capped at maxHelpPanelHeight,
+  // Size and place the panel first. Its height is capped at MAX_HELP_PANEL_HEIGHT,
   // so the rows must be laid out against the PANEL height, not the raw window
   // height, or the bottom rows spill out below the panel on tall windows.
-  double helpPanelHeight = cMin(maxHelpPanelHeight, cMax(0.0, (double)height - topMargin));
+  double helpPanelHeight = cMin(MAX_HELP_PANEL_HEIGHT, cMax(0.0, (double)height - TOP_MARGIN));
   helpPanel->setSize(520, helpPanelHeight);
-  double panelTop = height - topMargin;
+  double panelTop = height - TOP_MARGIN;
   helpPanel->setLocalPos(width - 550, panelTop - helpPanelHeight);
-  helpHeader->setLocalPos(width - 490, panelTop - headerReserve + 20);
+  helpHeader->setLocalPos(width - 490, panelTop - HEADER_RESERVE + 20);
 
   // Shrink row spacing if the rows would not otherwise fit inside the panel
   // (between the header at the top and a small margin above the bottom edge).
   int numHotkeyRows = static_cast<int>(hotkeyKeys.size());
-  double rowSpacing = defaultRowSpacing;
+  double rowSpacing = DEFAULT_ROW_SPACING;
   if (numHotkeyRows > 1) {
-    double availableRowSpace = helpPanelHeight - headerReserve - bottomMargin;
-    double neededRowSpace = defaultRowSpacing * (numHotkeyRows - 1);
+    double availableRowSpace = helpPanelHeight - HEADER_RESERVE - BOTTOM_MARGIN;
+    double neededRowSpace = DEFAULT_ROW_SPACING * (numHotkeyRows - 1);
     if (availableRowSpace > 0 && availableRowSpace < neededRowSpace) {
       rowSpacing = availableRowSpace / (numHotkeyRows - 1);
     }
   }
 
-  double rowStartY = panelTop - headerReserve;
+  double rowStartY = panelTop - HEADER_RESERVE;
   for (int i = 0; i < hotkeyKeys.size(); i++) {
-    cLabel *tempKeyLabel = hotkeyKeys[i];
-    cLabel *tempFuncLabel = hotkeyFunctions[i];
     double rowY = rowStartY - i * rowSpacing;
-    tempKeyLabel->setLocalPos(width - 530, rowY);
-    tempFuncLabel->setLocalPos(width - 350, rowY);
+    hotkeyKeys[i]->setLocalPos(width - 530, rowY);
+    hotkeyFunctions[i]->setLocalPos(width - 350, rowY);
   }
   
   if (showDebug) {
     // current atom force magnitude
-    cVector3d force = spheres[currentIndex]->getForce();
+    cVector3d force = atoms[currentIndex]->getForce();
     debugLabels[0]->setText("Force magnitude: " + cStr(force.length(), 5));
 
     // current atom position
-    cVector3d pos = spheres[currentIndex]->getLocalPos();
+    cVector3d pos = atoms[currentIndex]->getLocalPos();
     debugLabels[1]->setText("Atom pos: (" + cStr(pos.x(), 3) + ", " + cStr(pos.y(), 3) + ", " + cStr(pos.z(), 3) + ")");
 
     // nearest neighbor distance
     double minDist = std::numeric_limits<double>::max();
-    for (int i = 0; i < spheres.size(); i++) {
+    for (int i = 0; i < atoms.size(); i++) {
       if (i != currentIndex) {
-        double dist = cDistance(spheres[currentIndex]->getLocalPos(), spheres[i]->getLocalPos());
+        double dist = cDistance(atoms[currentIndex]->getLocalPos(), atoms[i]->getLocalPos());
         if (dist < minDist) minDist = dist;
       }
     }
-    debugLabels[2]->setText("Nearest neighbor: " + cStr(minDist / 0.02, 5) + " Ang");
+    debugLabels[2]->setText("Nearest neighbor: " + cStr(minDist / DIST_SCALE, 5) + " Ang");
 
     // max force across all atoms
     double maxForce = 0;
     int maxForceIndex = 0;
-    for (int i = 0; i < spheres.size(); i++) {
-      double mag = spheres[i]->getForce().length();
+    for (int i = 0; i < atoms.size(); i++) {
+      double mag = atoms[i]->getForce().length();
       if (mag > maxForce) {
         maxForce = mag;
         maxForceIndex = i;
@@ -1429,7 +1433,7 @@ void updateLabels() {
 
     // atom index labels  
     for (int i = 0; i < debugAtomLabels.size(); i++) {
-      cVector3d atomPos = spheres[i]->getLocalPos();
+      cVector3d atomPos = atoms[i]->getLocalPos();
       cVector3d camPos = camera->getLocalPos();
       cVector3d camLook = camera->getLookVector();
       cVector3d camUp = camera->getUpVector();
@@ -1450,11 +1454,11 @@ void updateLabels() {
     }
 
   } else {
-    for (int i = 0; i < debugLabels.size(); i++) {
-      debugLabels[i]->setShowEnabled(false);
+    for (chai3d::cLabel *label : debugLabels) {
+      label->setShowEnabled(false);
     }
-    for (int i = 0; i < debugAtomLabels.size(); i++) {
-      debugAtomLabels[i]->setShowEnabled(false);
+    for (chai3d::cLabel *label : debugAtomLabels) {
+      label->setShowEnabled(false);
     }
   }
 }
@@ -1470,9 +1474,13 @@ void updateGraphics(cWorld* world) {
   // bond lines for the current atom positions
   bool showAtoms = renderAtoms.load();
   bool showForceVectors = renderForceVectors.load();
-  for (int i = 0; i < spheres.size(); i++) {
-    spheres[i]->setShowEnabled(showAtoms);
-    spheres[i]->getVelVector()->setShowEnabled(showForceVectors);
+  int anchoredCount = 0;
+  for (Atom *atom : atoms) {
+    atom->setShowEnabled(showAtoms);
+    atom->getVelVector()->setShowEnabled(showForceVectors);
+    if (atom->isAnchor()) {
+      anchoredCount++;
+    }
   }
   updateBonds(world);
 
@@ -1485,12 +1493,8 @@ void updateGraphics(cWorld* world) {
   LJ_num->setLocalPos(0, 15, 0);
   LJ_num->setShowEnabled(debugVisible);
 
-  int anchoredCount = 0;
-  for (int i = 0; i < spheres.size(); i++) {
-    if (spheres[i]->isAnchor()) anchoredCount++;
-  }
   num_anchored->setText(to_string(anchoredCount) + " anchored / " +
-                        to_string(spheres.size()) + " total");
+                        to_string(atoms.size()) + " total");
   num_anchored->setLocalPos((width - num_anchored->getWidth()) - 5, 0);
   num_anchored->setShowEnabled(debugVisible);
 
@@ -1499,26 +1503,28 @@ void updateGraphics(cWorld* world) {
   scope_lower->setShowEnabled(debugVisible);
 
   scope->setSignalValues(potentialEnergy, global_minimum);
+  const double RANGE_OFFSET = 25.0;
   if (!global_min_known && global_minimum < scope->getRangeMin()) {
-    auto new_lower = scope->getRangeMin() - 25;
-    auto new_upper = scope->getRangeMax() - 25;
-    scope->setRange(new_lower, new_upper);
+    scope->setRange(scope->getRangeMin() - RANGE_OFFSET, scope->getRangeMax() - RANGE_OFFSET);
     scope_upper->setText(cStr(scope->getRangeMax()));
     scope_lower->setText(cStr(scope->getRangeMin()));
   }
 
-  // RENDER SCENE
-  world->updateShadowMaps(false, false); // update shadow maps (if any)
-  camera->renderView(width, height); // render world (width/height are framebuffer pixels)
-  glFinish(); // wait until all GL commands are completed
-  GLenum err = glGetError(); // check for any OpenGL errors
-  if (err != GL_NO_ERROR)
-    cout << "Error: " << gluErrorString(err) << endl;
+    // RENDER SCENE
+  world->updateShadowMaps(false, false);
+  camera->renderView(width, height);
+  #ifndef NDEBUG
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+      std::cout << "Error: " << gluErrorString(err) << std::endl;
+    }
+  #endif
 }
 
 void runGraphicsLoop(cWorld* world, GLFWwindow* mainWindow, GLFWwindow* sliderWindow) {
   framebufferSizeCallback(mainWindow, width, height); // initialize framebuffer size
   // main graphic loop
+  // auto t1 = std::chrono::steady_clock::now();
   while (!glfwWindowShouldClose(mainWindow)) {
     glfwGetFramebufferSize(mainWindow, &width, &height); // framebuffer size in pixels (HiDPI-aware)
     if (!hapticDevice) {
@@ -1533,34 +1539,35 @@ void runGraphicsLoop(cWorld* world, GLFWwindow* mainWindow, GLFWwindow* sliderWi
     } else {
       cVector3d hapticPosition;
       hapticDevice->getPosition(hapticPosition);
+      // auto t0 = std::chrono::steady_clock::now();
       hapticForce = stepSimulation(hapticPosition, simulationTimeStep.load() / ASE_UNITS_TO_FS, true);
+      // t1 = std::chrono::steady_clock::now();
+      // auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0);
+      // std::cout << "Calculation time: " << diff.count() << std::endl;
     }
     updateGraphics(world); // render graphics
+    // auto t2 = std::chrono::steady_clock::now();
+    // auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1);
+    // std::cout << "Graphics Update time: " << diff.count() << std::endl;
     glfwSwapBuffers(mainWindow); // swap buffers
     renderSliderWindow(mainWindow, sliderWindow);
     glfwPollEvents(); // process events
     freqCounterGraphics.signal(1); // signal frequency counter
+    // std::cout << freqCounterGraphics.getFrequency() << std::endl;
   }
 }
 
-// Nudges the current atom along the camera axes using the keyboard controls.
-void moveCurrentAtom(double rightAmount, double upAmount, double forwardAmount) {
+// Applies some force to the atom relative to the camera
+void relCamApplyForceToCurrent(cVector3d direction) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  if (spheres.empty()) {
-    return;
-  }
-  Atom *current = spheres[currentIndex];
-
-  // Distance that the current atom moves when nudged with the keyboard controls.
-  const double ATOM_MOVE_STEP = DIST_SCALE;
-
-  cVector3d delta = ATOM_MOVE_STEP * (rightAmount * camera->getRightVector() +
-                                      upAmount * camera->getUpVector() +
-                                      forwardAmount * camera->getLookVector());
-  current->setLocalPos(current->getLocalPos() + delta);
-  if (currentIndex < prevPositions.size()) {
-    prevPositions[currentIndex] = current->getLocalPos();
-  }
+  chai3d::cVector3d right = camera->getRightVector();
+  chai3d::cVector3d up = camera->getUpVector();
+  chai3d::cVector3d look = camera->getLookVector();
+  extraForces += chai3d::cVector3d(
+    cDot(direction, right), 
+    cDot(direction, up), 
+    cDot(direction, look)
+  );
 }
 
 // Adds a new label to the scene using the default style.
@@ -1576,7 +1583,7 @@ void writeToCon(string fileName);
 /*
  LJ.cpp
  This program simulates LJ clusters of varying sizes using modified
- sphere primitives (atom.cpp). All dynamics and collisions are computed in the
+ atom primitives (atom.cpp). All dynamics and collisions are computed in the
  haptics thread.
  */
 //==============================================================================
@@ -1642,8 +1649,8 @@ int runApplication(int argc, char *argv[]) {
   // PLACE ATOMS
   placeAtoms(world, aseCell, asePbc, argc, argv);
   initializeAtomLabels();
-  for (int i = 0; i < spheres.size(); i++) {
-    initialPositions.push_back(spheres[i]->getLocalPos());
+  for (int i = 0; i < atoms.size(); i++) {
+    initialPositions.push_back(atoms[i]->getLocalPos());
   }
 
   if (pbcMode == "on" || pbcMode == "true" || pbcMode == "1" || pbcMode == "yes") {
@@ -1830,26 +1837,26 @@ void switchCamera() {
 
 void switchCurrentAtom() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  if (spheres.empty()) {
+  if (atoms.empty()) {
     return;
   }
-  currentIndex %= spheres.size();
-  Atom* current = spheres[currentIndex];
+  currentIndex %= atoms.size();
+  Atom* current = atoms[currentIndex];
   int prev_curr_atom = currentIndex;
-  currentIndex = (currentIndex + 1) % spheres.size();  if (currentIndex < 0)
-    currentIndex += spheres.size();
+  currentIndex = (currentIndex + 1) % atoms.size();  if (currentIndex < 0)
+    currentIndex += atoms.size();
   int startAtom = currentIndex;
-  while (spheres[currentIndex]->isAnchor()) {
-    currentIndex = (currentIndex + 1) % spheres.size();    if (currentIndex < 0)
-      currentIndex += spheres.size();
+  while (atoms[currentIndex]->isAnchor()) {
+    currentIndex = (currentIndex + 1) % atoms.size();    if (currentIndex < 0)
+      currentIndex += atoms.size();
     if (currentIndex == startAtom)
       break;
   }
 
-  current = spheres[currentIndex];
+  current = atoms[currentIndex];
   current->setCurrent(true);
 
-  Atom *prev = spheres[prev_curr_atom];
+  Atom *prev = atoms[prev_curr_atom];
   prev->setCurrent(false);
 }
 
@@ -2076,7 +2083,7 @@ void ensureSelectedAtomOffsets(const vector<int> &selectedIndices,
   activeHapticSelection = selectedIndices;
   activeHapticSelectionOffsets.clear();
   for (int index : selectedIndices) {
-    activeHapticSelectionOffsets[index] = spheres[index]->getLocalPos() - position;
+    activeHapticSelectionOffsets[index] = atoms[index]->getLocalPos() - position;
   }
   prevHapticInitialized = false;
 }
@@ -2095,7 +2102,7 @@ cVector3d forceModeUpdateSelectedGroup(const vector<int> &selectedIndices,
   cVector3d averageSimulationForce = getAverageAtomGroupForce(selectedIndices);
 
   for (int index : selectedIndices) {
-    Atom *atom = spheres[index];
+    Atom *atom = atoms[index];
     cVector3d currentPosition = atom->getLocalPos();
     cVector3d previousPosition = prevPositions[index];
     cVector3d targetPosition = getSelectedAtomTarget(index, position);
@@ -2121,7 +2128,7 @@ cVector3d positionModeUpdateSelectedGroup(const vector<int> &selectedIndices,
   ensureSelectedAtomOffsets(selectedIndices, position);
 
   for (int index : selectedIndices) {
-    Atom *atom = spheres[index];
+    Atom *atom = atoms[index];
     cVector3d oldPosition = atom->getLocalPos();
     cVector3d targetPosition = getSelectedAtomTarget(index, position);
     cVector3d attraction = (targetPosition - oldPosition) * timeInterval * VELOCITY_MULT;
@@ -2146,7 +2153,7 @@ cVector3d standbyModeUpdateSelectedGroup(const vector<int> &selectedIndices,
   cVector3d dPHaptic = position - prevHapticPosition;
   prevHapticPosition = position;
   for (int index : selectedIndices) {
-    Atom *atom = spheres[index];
+    Atom *atom = atoms[index];
     cVector3d oldPosition = atom->getLocalPos();
     cVector3d newPosition = oldPosition + dPHaptic;
     applyBoundaryConditions(oldPosition, newPosition);
