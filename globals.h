@@ -16,15 +16,6 @@ enum MouseState { MOUSE_IDLE, MOUSE_SELECTION, MOUSE_BOX_SELECTION };
 enum LocalPotential { LENNARD_JONES, MORSE, ASE };
 enum class HapticMode { Position, Standby, Force };
 
-// map of atom stringnames by atomic number
-extern std::unordered_map<int, std::string> atomStringNames;
-
-// map of atom weights by atomic number
-extern std::unordered_map<int, double> atomWeights;
-
-// map of atom colors by atomic number
-extern std::unordered_map<int, std::tuple<const GLfloat, const GLfloat, const GLfloat>> atomColors;
-
 // Calculator object for force and potential energy calculatorString
 extern Calculator* calculatorPtr;
 
@@ -37,14 +28,12 @@ extern std::vector<chai3d::cLabel *> hotkeyFunctions;
 // a camera to render the world in the window display
 extern chai3d::cCamera *camera;
 
-// for updating camera position
-extern double CAMERA_POSITION;
 
 extern double CAMERA_RADIUS; 
 
 extern const double DIST_SCALE;
-// sphere objects
-extern std::vector<Atom *> spheres;
+// atom objects
+extern std::vector<Atom *> atoms;
 
 // coordinates of central atom
 extern double centerCoords[3];
@@ -148,31 +137,17 @@ void switchCamera();
 
 // nudge the current (controlled) atom one keyboard step along the camera's
 // right/up/look axes; each argument is -1, 0, or 1
-void moveCurrentAtom(double rightAmount, double upAmount, double forwardAmount);
+void relCamApplyForceToCurrent(chai3d::cVector3d direction);
 
 // swap the live calculator between "lj" and "morse"; returns false (and leaves
 // the current calculator untouched) for any other request, since ASE
 // calculators need constructor arguments only available at launch time
 bool setLivePotential(const std::string &requested);
-// debug menu toggle
-extern bool showDebug;
 
-// debug labels 
-extern std::vector<chai3d::cLabel *> debugLabels;
-
-// atom index labels 
-extern std::vector<chai3d::cLabel *> debugAtomLabels;
-
-// initial positions for reset
-extern std::vector<chai3d::cVector3d> initialPositions;
-
-// current atom index
-extern int currentIndex;
-
-// current measured temperature of the system
-extern std::atomic<double> displayedTemperature;
-
-// temperature label
-extern chai3d::cLabel *temperatureLabel;
-
-// barrier energy visualization label
+extern bool showDebug; // debug menu toggle
+extern std::vector<chai3d::cLabel *> debugLabels; // debug labels 
+extern std::vector<chai3d::cLabel *> debugAtomLabels; // atom index labels 
+extern std::vector<chai3d::cVector3d> initialPositions; // initial positions for reset
+extern int currentIndex; // current atom index
+extern std::atomic<double> displayedTemperature; // current measured temperature of the system
+extern chai3d::cLabel *temperatureLabel; // temperature label
