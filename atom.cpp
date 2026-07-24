@@ -168,11 +168,6 @@ void Atom::refreshMaterial() {
     }
 }
 
-/**
- * @brief A constructor for an atom
- * @param radius the radius of the atom. Should be based on the covalent radius
- * @param atomicNum the atomic number of the atom
- */
 Atom::Atom(double radius, int atomicNum) : chai3d::cShapeSphere(radius) {
     anchor = false;
     current = false;
@@ -194,18 +189,10 @@ Atom::Atom(double radius, int atomicNum) : chai3d::cShapeSphere(radius) {
     refreshMaterial();
 }
 
-/**
- * @brief Returns if the atom is anchor
- * @return true if the atom is anchored, false otherwise
- */
 bool Atom::isAnchor() { 
     return anchor; 
 }
 
-/**
- * @brief Sets if the atom should be anchored
- * @param newAnchor if the atom should be anchored
- */
 void Atom::setAnchor(bool newAnchor) {
     if (newAnchor) {
         current = false;
@@ -214,18 +201,10 @@ void Atom::setAnchor(bool newAnchor) {
     refreshMaterial();
 }
 
-/**
- * @brief Returns if the atom is current
- * @return true if the atom is current, false otherwise
- */
 bool Atom::isCurrent() { 
     return current; 
 }
 
-/**
- * @brief Sets if the atom should be current
- * @param newCurrent if the atom should be current
- */
 void Atom::setCurrent(bool newCurrent) {
     if (newCurrent) {
         anchor = false;  // cannot be both anchor and current
@@ -234,18 +213,10 @@ void Atom::setCurrent(bool newCurrent) {
     refreshMaterial();
 }
 
-/**
- * @brief Returns if the atom is repeating
- * @return true if the atom is repeating, false otherwise
- */
 bool Atom::isRepeating() { 
     return repeating; 
 }
 
-/**
- * @brief Sets if the atom should be repeating
- * @param newRepeat if the atom should be repeating
- */
 void Atom::setRepeating(bool newRepeat) {
     if (newRepeat) {
         anchor = false; // cannot be both anchor and repeating
@@ -254,84 +225,45 @@ void Atom::setRepeating(bool newRepeat) {
     refreshMaterial();
 }
 
-/**
- * @brief Returns if the atom is selected
- * @return true if the atom is selected, false otherwise
- */
 bool Atom::isSelected() { 
     return selected; 
 }
 
-/**
- * @brief Sets if the atom should be selected
- * @param newSelected if the atom should be selected
- */
 void Atom::setSelected(bool newSelected) {
     selected = newSelected;
     refreshMaterial();
 }
 
-/**
- * @brief Gets the velocity of the atom
- * @return the velocity of the atom in world units. One world unit is 50 Å.
- */
 chai3d::cVector3d Atom::getVelocity() { 
     return velocity; 
 }
 
-/**
- * @brief Sets the velocity of the atom in world units.
- * @param newVel the velocity of the atom in world units. One world unit is 50 Å.
- */
 void Atom::setVelocity(chai3d::cVector3d newVel) { 
     velocity = newVel; 
 }
 
-/**
- * @brief Gets the force applied to the atom
- * @return the force applied to the atom in eV/Å
- */
 chai3d::cVector3d Atom::getForce() { 
     return force; 
 }
 
-/**
- * @brief Sets the force applied to the atom
- * @param newForce the force to apply to the atom in eV/Å
- */
 void Atom::setForce(chai3d::cVector3d newForce) {
     prevForce = force;
     force = newForce;  // Add exception for if controlled atom is in the same
     // location as the anchored atom
 }
 
-/**
- * @brief Gets the force previous to the current applied force.
- * @return the force previous to the current applied force
- */
 cVector3d Atom::getPrevForce() {
     return prevForce;
 }
 
-/**
- * @brief Gets the velocity vector of the atom as a rendered line
- * @return the velocity vector of the atom as a rendered line
- */
 cShapeLine* Atom::getVelVector() { 
     return velVector; 
 }
 
-/**
- * @brief Sets the rendered velocity vector of the atom
- * @param newVelVector The new rendered velocity vector of the atom
- */
 void Atom::setVelVector(cShapeLine* newVelVector) { 
     velVector = newVelVector;
 }
 
-/**
- * @brief Update the atom's rendered velocity vector
- */
 void Atom::updateVelVector() {
     // Create a line representing the forces felt on the atom
     cVector3d newPointNormalized = cAdd(this->getLocalPos(), this->getForce());
@@ -352,10 +284,6 @@ void Atom::updateVelVector() {
     }
 }
 
-/**
- * @brief Sets the color of the atom
- * @param color The color to set the atom to
- */
 void Atom::setColor(cColorf color) {
     if (!selected) {
         m_material->setColor(color);
@@ -363,34 +291,18 @@ void Atom::setColor(cColorf color) {
     }
 }
 
-/**
- * @brief Gets the atomic number of the atom
- * @return the atomic number of the atom
- */
 int Atom::getAtomicNumber() const { 
     return atomicNumber;
 }
 
-/**
- * @brief Sets the atomic number of the atom
- * @param num the atomic number of the atom to set to
- */
 void Atom::setAtomicNumber(int num) {
     atomicNumber = num;
 }
 
-/**
- * @brief Gets the chemical symbol of the atom
- * @return the chemical symbol of the atom
- */
 string Atom::getElement() {
     return ATOM_STRINGS[atomicNumber];
 }
 
-/**
- * @brief Gets the mass of the atom
- * @return the atomic mass of the atom in atomic mass units (amu)
- */
 double Atom::getMass() {
     return ATOM_WEIGHTS[atomicNumber];
 }

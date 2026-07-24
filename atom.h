@@ -7,43 +7,152 @@ using namespace std;
 using namespace chai3d;
 
 class Atom : public cShapeSphere {
-private:
-    bool anchor;
-    bool current;
-    bool repeating;
-    bool selected;
-    cVector3d velocity;
-    cVector3d force;
-    cVector3d prevForce;
-    cShapeLine *velVector;
-    int atomicNumber;
-    cColorf color;
+    private:
+        bool anchor;
+        bool current;
+        bool repeating;
+        bool selected;
+        cVector3d velocity;
+        cVector3d force;
+        cVector3d prevForce;
+        cShapeLine *velVector; // a rendered line that represents the atom's velocity
+        int atomicNumber;
+        cColorf color;
 
-    void refreshMaterial();
+        void refreshMaterial();
 
-public:
-    Atom(double radius, int atomicNumber);
-    bool isAnchor();
-    void setAnchor(bool newAnchor);
-    bool isRepeating();
-    void setRepeating(bool newRepeat);
-    bool isCurrent();
-    void setCurrent(bool newCurrent);
-    bool isSelected();
-    void setSelected(bool newSelected);
-    cVector3d getVelocity();
-    void setVelocity(cVector3d newVel);
-    cVector3d getForce();
-    void setForce(cVector3d newForce);
-    cVector3d getPrevForce();
-    cShapeLine *getVelVector();
-    void setVelVector(cShapeLine *newVelVector);
-    void updateVelVector();
-    void setColor(cColorf color);
-    int getAtomicNumber() const;
-    void setAtomicNumber(int num);
-    string getElement();
-    double getMass();
+    public:
+        /**
+         * @brief A constructor for an atom
+         * @param radius the radius of the atom. Should be based on the covalent radius
+         * @param atomicNum the atomic number of the atom
+         */
+        Atom(double radius, int atomicNumber);
+
+        /**
+         * @brief Returns if the atom is anchor
+         * @return true if the atom is anchored, false otherwise
+         */
+        bool isAnchor();
+
+        /**
+         * @brief Sets if the atom should be anchored
+         * @param newAnchor if the atom should be anchored
+         */
+        void setAnchor(bool newAnchor);
+
+        /**
+         * @brief Returns if the atom is repeating
+         * @return true if the atom is repeating, false otherwise
+         */
+        bool isRepeating();
+
+        /**
+         * @brief Sets if the atom should be repeating
+         * @param newRepeat if the atom should be repeating
+         */
+        void setRepeating(bool newRepeat);
+
+        /**
+         * @brief Returns if the atom is current
+         * @return true if the atom is current, false otherwise
+         */
+        bool isCurrent();
+
+        /**
+         * @brief Sets if the atom should be current
+         * @param newCurrent if the atom should be current
+         */
+        void setCurrent(bool newCurrent);
+
+        /**
+         * @brief Returns if the atom is selected
+         * @return true if the atom is selected, false otherwise
+         */
+        bool isSelected();
+
+        /**
+         * @brief Sets if the atom should be selected
+         * @param newSelected if the atom should be selected
+         */
+        void setSelected(bool newSelected);
+
+        /**
+         * @brief Gets the velocity of the atom
+         * @return the velocity of the atom in world units. One world unit is 50 Å.
+         */
+        cVector3d getVelocity();
+        
+        /**
+         * @brief Sets the velocity of the atom in world units.
+         * @param newVel the velocity of the atom in world units. One world unit is 50 Å.
+         */
+        void setVelocity(cVector3d newVel);
+
+        /**
+         * @brief Gets the force applied to the atom
+         * @return the force applied to the atom in eV/Å
+         */
+        cVector3d getForce();
+
+        /**
+         * @brief Sets the force applied to the atom
+         * @param newForce the force to apply to the atom in eV/Å
+         */
+        void setForce(cVector3d newForce);
+
+        /**
+         * @brief Gets the force previous to the current applied force.
+         * @return the force previous to the current applied force
+         */
+        cVector3d getPrevForce();
+
+        /**
+         * @brief Gets the velocity vector of the atom as a rendered line
+         * @return the velocity vector of the atom as a rendered line
+         */
+        cShapeLine *getVelVector();
+
+        /**
+         * @brief Sets the rendered velocity vector of the atom
+         * @param newVelVector The new rendered velocity vector of the atom
+         */
+        void setVelVector(cShapeLine *newVelVector);
+
+        /**
+         * @brief Update the atom's rendered velocity vector
+         */
+        void updateVelVector();
+
+        /**
+         * @brief Sets the color of the atom
+         * @param color The color to set the atom to
+         */
+        void setColor(cColorf color);
+
+        /**
+         * @brief Gets the atomic number of the atom
+         * @return the atomic number of the atom
+         */
+        int getAtomicNumber() const;
+
+        /**
+         * @brief Sets the atomic number of the atom
+         * @param num the atomic number of the atom to set to
+         */
+        void setAtomicNumber(int num);
+        
+        /**
+         * @brief Gets the chemical symbol of the atom
+         * @return the chemical symbol of the atom
+         */
+        string getElement();
+
+        /**
+         * @brief Gets the mass of the atom
+         * @return the atomic mass of the atom in atomic mass units (amu)
+         */
+        double getMass();
 };
 
 #endif  // ATOM_H
