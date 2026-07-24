@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         file_row = QHBoxLayout()
         self.structure_file_edit = QLineEdit()
         self.structure_file_edit.setPlaceholderText(
-            "e.g. example.con, POSCAR, or structure.xyz (see ../bin/resources/data)"
+            "e.g. example.con, example.poscar, POSCAR, or structure.xyz (see ../bin/resources/data)"
         )
         browse_structure = QPushButton("Browse...")
         browse_structure.clicked.connect(self._browse_structure_file)
@@ -279,6 +279,7 @@ class MainWindow(QMainWindow):
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(2000)
+        self.log_view.setMinimumHeight(250)
         layout.addWidget(self.log_view)
         return group
 
@@ -357,7 +358,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.render_forces_checkbox)
 
         self.render_bonds_checkbox = QCheckBox("Bonds")
-        self.render_bonds_checkbox.setChecked(True)
+        self.render_bonds_checkbox.setChecked(False)
         self.render_bonds_checkbox.toggled.connect(
             lambda checked: self.ipc.send(f"set render_bonds {'true' if checked else 'false'}")
         )
