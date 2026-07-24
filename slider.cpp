@@ -9,21 +9,23 @@
 
 class Slider {
   std::string name;
-  std::string units;
-  double minVal;
-  double maxVal;
-  double val;
-  int sigFigs;
-  bool dragging;
+  std::string units; // the unit type the slider is in
+  double minVal; // the minimum value the slider can go to 
+  double maxVal; // the maximum value the slider can go to
+  double val; // the value the slider is currently at
+  int sigFigs; // how many significant digits of precision the slider displays
+  bool dragging; // whether the slider is currently being dragged
 
   public: 
-    /// @brief A constructor for building a slider.
-    /// @param name Name of what quantity the slider is controlling
-    /// @param units Unit that the quantity is measured in
-    /// @param minVal Minimum value of the slider
-    /// @param maxVal Maximum value of the slider
-    /// @param defaultVal The default (launch) value of the slider
-    /// @param sigFigs The number of significant digits displayed
+    /**
+     * @brief A constructor for building a slider.
+     * @param name Name of what quantity the slider is controlling
+     * @param units Unit that the quantity is measured in
+     * @param minVal Minimum value of the slider
+     * @param maxVal Maximum value of the slider
+     * @param defaultVal The default (launch) value of the slider
+     * @param sigFigs The number of significant digits displayed
+     */
     Slider(std::string name, std::string units, double minVal, double maxVal, double defaultVal, 
          double sigFigs) {
       this->name = name;
@@ -35,10 +37,18 @@ class Slider {
       dragging = false;
     }
 
+    /**
+     * @brief Gets the normalized value of the slider (0-1)
+     * @return the normalized value of the slider, as a decimal between 0 and 1
+     */
     double getNormalizedValue() {
       return maxVal <= minVal ? 0.0 : (val - minVal) / (maxVal - minVal);
     }
 
+    /**
+     * @brief Sets the value of the slider from a normalized value
+     * @param normalizedVal the normalized value to use to set the value of the slider
+     */
     void setNormalizedValue(double normalizedVal) {
       if (normalizedVal < 0.0) {
           normalizedVal = 0.0;
@@ -48,43 +58,76 @@ class Slider {
       val = minVal + normalizedVal * (maxVal - minVal);
     }
 
+    /**
+     * @brief Gets the text the slider should display
+     * @return the text the slider should display; displays the name of the slider and its value in
+     *         its respective units
+     */
     std::string getDisplayText() {
       return name + ": " + chai3d::cStr(val, sigFigs) + " " + units;
     }
 
+    /**
+     * @brief Gets whether the slider is being dragged or not
+     * @return true if the slider is being dragged; false otherwise
+     */
     bool isDragging() {
       return dragging;
     }
 
+    /**
+     * @brief Sets if the slider is being dragged
+     * @return if the slider is being dragged
+     */
     void setDragging(bool dragging) {
       this->dragging = dragging;
     }
 
+    /**
+     * @brief Gets the value of the slider
+     * @return the value of the slider (not normalized!)
+     */
     double getVal() {
       return val;
     }
 
+    /**
+     * @brief Sets the value of the slider
+     * @param val the value to set the slider to (not normalized!)
+     */
     void setVal(double val) {
-      this->val = val;
+      if (val > maxVal) {
+        this->val = maxVal;
+      } else if (val < minVal) {
+        this->val = minVal;
+      } else {
+        this->val = val;
+      }
     }
 
+    /**
+     * @brief Gets the name of the slider
+     * @return the name of the slider
+     */
     std::string getName() {
       return name;
     }
 };
 
 
-std::vector<Slider> sliders;
+std::vector<Slider> sliders; // A list of all the sliders
 const int SLIDER_WIDTH = 240;
-const int SLIDER_LEFT = 50;
-const int SLIDER_TOP = 45;
-const int SLIDER_ROW_SPACING = 52;
+const int SLIDER_LEFT = 50; // the left margin of the slider
+const int SLIDER_TOP = 45; // the top margin of the slider
+const int SLIDER_ROW_SPACING = 52; // the space between sliders
 
-double getNormValFromMouseX(int sliderIndex, double mouseX) {
-  double trackX = SLIDER_LEFT;
-  double trackY = SLIDER_TOP + sliderIndex * SLIDER_ROW_SPACING;
-
-  double normalizedValue = (mouseX - trackX) / SLIDER_WIDTH;
+/**
+ * @brief Gets the normalized x-pos of the mouse along the slider track
+ * @param mouseX the x-pos of the mouse in the window as screen coordinates
+ * @return the normalized x-pos of the mouse along the slider track
+ */
+double getNormValFromMouseX(double mouseX) {
+  double normalizedValue = (mouseX - SLIDER_LEFT) / SLIDER_WIDTH;
   if (normalizedValue < 0.0) {
     return 0.0;
   } else if (normalizedValue > 1.0) {
@@ -93,28 +136,40 @@ double getNormValFromMouseX(int sliderIndex, double mouseX) {
   return normalizedValue;
 }
 
-// SLIDER UI STEP 4: Wire the slider back to whatever live state it controls,
-// both so dragging it takes effect immediately and so the handle reflects
-// changes made through another channel (e.g. the launcher's IPC command).
-void applySliderVal(const std::string &id, double value) {
+/**
+ * @brief Applies the value from the slider window to the slider in the launcher
+ * @param id the name of the slider to apply to
+ * @param val the value to apply to the slider
+ */
+void applySliderVal(const std::string &id, double val) {
   if (id == "Time Step") {
-    setLiveTimeStep(value);
+    setLiveTimeStep(val);
   }
 }
 
-// Handles cursor movement inside the slider window.
-void sliderWindowCursorPosCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
+/**
+ * @brief A callback that handles cursor movement inside the slider window.
+ * @param window the slider window
+ * @param mouseX the x-pos of the cursor
+ * @param mouseY the y-pos of the cursor
+ */ 
+void sliderWindowCursorPosCallback(GLFWwindow *window, double mouseX, double mouseY) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  double x, y;
-  glfwGetCursorPos(a_window, &x, &y);
-  for (int i = 0; i < sliders.size(); i++) {
-    if (sliders[i].isDragging()) {
-      sliders[i].setNormalizedValue(getNormValFromMouseX(i, x));
-      applySliderVal(sliders[i].getName(), sliders[i].getVal());
+  for (Slider& slider : sliders) {
+    if (slider.isDragging()) {
+      slider.setNormalizedValue(getNormValFromMouseX(mouseX));
+      applySliderVal(slider.getName(), slider.getVal());
     }
   }
 }
 
+/**
+ * @brief Gets whether the mouse is over the specified slider
+ * @param sliderIndex the index of the slider to check
+ * @param mouseX the x-pos of the mouse
+ * @param mouseY the y-pos of the mouse
+ * @return true if the mouse is over the specified slider; false otherwise
+ */
 bool isMouseOverSlider(int sliderIndex, double mouseX, double mouseY) {
   double trackX = SLIDER_LEFT;
   double trackY = SLIDER_TOP + sliderIndex * SLIDER_ROW_SPACING;
@@ -123,34 +178,43 @@ bool isMouseOverSlider(int sliderIndex, double mouseX, double mouseY) {
         && mouseY <= trackY + 18;
 }
 
-// Handles mouse button presses inside the slider window.
+/**
+ * @brief A callback that handles mouse button presses inside the slider window.
+ * @param a_window a pointer to the slider window
+ * @param a_button The mouse button that was pressed or released
+ * @param a_action GLFW_PRESS or GLFW_RELEASE
+ * @param a_mods Bit field describing which modifier keys were held down.
+ */
 void sliderWindowMouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action, int a_mods) {
-  if (a_button != GLFW_MOUSE_BUTTON_LEFT) {
-    return;
-  }
-
-  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  double x, y;
-  glfwGetCursorPos(a_window, &x, &y);
-  if (a_action == GLFW_PRESS) {
-    for (int i = 0; i < sliders.size(); i++) {
+  if (a_button == GLFW_MOUSE_BUTTON_LEFT) {
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+    double x, y;
+    glfwGetCursorPos(a_window, &x, &y);
+    if (a_action == GLFW_PRESS) {
+      for (int i = 0; i < sliders.size(); i++) {
         if (isMouseOverSlider(i, x, y)) {
             sliders[i].setDragging(true);
-            sliders[i].setNormalizedValue(getNormValFromMouseX(i, x));
+            sliders[i].setNormalizedValue(getNormValFromMouseX(x));
             applySliderVal(sliders[i].getName(), sliders[i].getVal());
         }
-    }
-  } else if (a_action == GLFW_RELEASE) {
-    for (Slider& slider : sliders) {
+      }
+    } else if (a_action == GLFW_RELEASE) {
+      for (Slider& slider : sliders) {
         if (slider.isDragging()) {
             slider.setDragging(false);
         }
+      }
     }
   }
 }
 
 /**
  * @brief Handles keyboard input inside the slider window.
+ * @param a_window pointer to the slider window
+ * @param a_key The keyboard key that was pressed or released
+ * @param a_scancode 	The system-specific scancode of the key.
+ * @param a_action GLFW_PRESS, GLFW_RELEASE, or GLFW_REPEAT
+ * @param a_mods Bit field describing which modifier keys were held down.
  */
 void sliderWindowKeyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action, int a_mods) {
   if ((a_action == GLFW_PRESS) || (a_action == GLFW_REPEAT)) {
@@ -190,6 +254,12 @@ GLFWwindow* initializeSliderWindow(GLFWwindow* mainWindow) {
     return sliderWindow;
 }
 
+/**
+ * @brief Draws the text for a slider
+ * @param text The text to draw
+ * @param x the x-pos of the text
+ * @param y the y-pos of the text
+ */
 void drawSliderText(const std::string &text, double x, double y) {
     chai3d::cFontPtr SLIDER_FONT = NEW_CFONT_CALIBRI_20();
     if (SLIDER_FONT) {
@@ -217,11 +287,12 @@ void drawSliderText(const std::string &text, double x, double y) {
     }
 }
 
-void getSliderLayout(int sliderIndex, double &trackX, double &trackY) {
-  trackX = SLIDER_LEFT;
-  trackY = SLIDER_TOP + sliderIndex * SLIDER_ROW_SPACING;
-}
-
+/**
+ * @brief Gets the value of the indicated slider from the launcher
+ * @param id the name of the slider
+ * @param fallback a fallback value to use if the slider is not found
+ * @return the value of the indicated slider from the launcher
+ */
 double getLiveSliderValue(const std::string &id, double fallback) {
   if (id == "Time Step") {
     return simulationTimeStep.load();
@@ -229,10 +300,9 @@ double getLiveSliderValue(const std::string &id, double fallback) {
   return fallback;
 }
 
-
-
-// keep sliders that aren't currently being dragged in sync with live state
-// changed through another channel (e.g. the launcher's IPC "set timestep")
+/**
+ * @brief Syncs the sliders in the slider window with the sliders in the launcher
+ */
 void syncSlidersFromLiveState() {
   for (Slider &slider : sliders) {
     if (!slider.isDragging()) {
@@ -250,6 +320,9 @@ double getSliderVal(const std::string &id, double fallback) {
   return fallback;
 }
 
+/**
+ * @brief Renders/re-renders all of the sliders
+ */
 void renderSliders() {
   const double TRACK_HALF_HEIGHT = 3.0;
   const double HANDLE_RADIUS = 9.0;
@@ -261,9 +334,8 @@ void renderSliders() {
 
   for (int i = 0; i < sliders.size(); i++) {
     Slider &slider = sliders[i];
-    double trackX;
-    double trackY;
-    getSliderLayout(i, trackX, trackY);
+    double trackX = SLIDER_LEFT;
+    double trackY = SLIDER_TOP + i * SLIDER_ROW_SPACING;
     const double trackXEnd = trackX + SLIDER_WIDTH;
     const double handleX = trackX + slider.getNormalizedValue() * SLIDER_WIDTH;
 
@@ -272,7 +344,6 @@ void renderSliders() {
     drawPill(trackX, handleX, trackY, TRACK_HALF_HEIGHT, HANDLE_TRACK_COLOR);
     drawCircle(handleX, trackY, HANDLE_RADIUS, COLOR_MYSTERY);
     drawCircle(handleX, trackY, HANDLE_RADIUS - 2.5, HANDLE_COLOR);
-    
   }
 }
 

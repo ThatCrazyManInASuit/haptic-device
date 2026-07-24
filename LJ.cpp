@@ -1731,11 +1731,6 @@ bool setLivePotential(const std::string &requested) {
 }
 
 bool setLiveTimeStep(double seconds) {
-  if (!std::isfinite(seconds) ||
-      seconds < MIN_SIMULATION_TIME_STEP ||
-      seconds > MAX_SIMULATION_TIME_STEP) {
-    return false;
-  }
   simulationTimeStep.store(seconds);
   return true;
 }
