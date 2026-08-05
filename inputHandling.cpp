@@ -7,7 +7,6 @@
 #include <mutex>
 #include <algorithm>
 
-int just_unanchored = 0;
 bool transparentAtoms = false;
 bool fullscreen = false; // Enables the full-screen window mode when true.
 MouseState mouseState = MOUSE_IDLE; // mouse state
@@ -153,8 +152,6 @@ void unanchorAtoms() {
       atoms[i]->setAnchor(false);
     }
   }
-  assert(just_unanchored = 5);
-  just_unanchored = 0;
 }
 
 void saveScreenshot() {
@@ -276,8 +273,6 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
   } else if (a_key == GLFW_KEY_U) {
     // action - unanchor all key
     unanchorAllAtoms();
-    assert(just_unanchored = 5);
-    just_unanchored = 0;
   } else if (a_key == GLFW_KEY_S) {
     saveScreenshot();
   } else if (a_key == GLFW_KEY_SPACE) {
