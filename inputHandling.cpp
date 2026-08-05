@@ -7,7 +7,6 @@
 #include <mutex>
 #include <algorithm>
 
-bool transparentAtoms = false;
 bool fullscreen = false; // Enables the full-screen window mode when true.
 MouseState mouseState = MOUSE_IDLE; // mouse state
 enum MouseState { 
@@ -262,8 +261,9 @@ void toggleHelpPanel() {
   }
 }
 
-void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
-                 int a_mods) {
+void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action, int a_mods) {
+  const double KEYBOARD_MOVE = 5.0;
+  static bool transparentAtoms = false;
   if ((a_action != GLFW_PRESS) && (a_action != GLFW_REPEAT)) {
     return;
   } else if ((a_key == GLFW_KEY_ESCAPE) || (a_key == GLFW_KEY_Q)) {
@@ -284,17 +284,17 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
   } else if (a_key == GLFW_KEY_3 && a_action == GLFW_PRESS) {  // toggle bond rendering
     renderBonds = !renderBonds;
   } else if (a_key == GLFW_KEY_I) {  // move current atom up
-    relCamApplyForceToCurrent(chai3d::cVector3d(0, 1, 0));
+    relCamApplyForceToCurrent(KEYBOARD_MOVE * chai3d::cVector3d(0, 1, 0));
   } else if (a_key == GLFW_KEY_K) {  // move current atom down
-    relCamApplyForceToCurrent(chai3d::cVector3d(0, -1, 0));
+    relCamApplyForceToCurrent(KEYBOARD_MOVE * chai3d::cVector3d(0, -1, 0));
   } else if (a_key == GLFW_KEY_J) {  // move current atom left
-    relCamApplyForceToCurrent(chai3d::cVector3d(-1, 0, 0));
+    relCamApplyForceToCurrent(KEYBOARD_MOVE * chai3d::cVector3d(-1, 0, 0));
   } else if (a_key == GLFW_KEY_L) {  // move current atom right
-    relCamApplyForceToCurrent(chai3d::cVector3d(1, 0, 0));
+    relCamApplyForceToCurrent(KEYBOARD_MOVE * chai3d::cVector3d(1, 0, 0));
   } else if (a_key == GLFW_KEY_O) {  // move current atom forward (away from camera)
-    relCamApplyForceToCurrent(chai3d::cVector3d(0, 0, 1));
+    relCamApplyForceToCurrent(KEYBOARD_MOVE * chai3d::cVector3d(0, 0, 1));
   } else if (a_key == GLFW_KEY_P) {  // move current atom backward (toward camera)
-    relCamApplyForceToCurrent(chai3d::cVector3d(0, 0, -1));
+    relCamApplyForceToCurrent(KEYBOARD_MOVE * chai3d::cVector3d(0, 0, -1));
   } else if (a_key == GLFW_KEY_C) {  // save atoms to con file
     std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     ofstream writeFile;
