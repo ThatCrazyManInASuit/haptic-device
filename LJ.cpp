@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <deque>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -1377,63 +1378,127 @@ void updateLabels() {
     cVector3d pos = atoms[currentIndex]->getLocalPos();
     debugLabels[1]->setText("Atom pos: (" + cStr(pos.x(), 3) + ", " + cStr(pos.y(), 3) + ", " + cStr(pos.z(), 3) + ")");
 
-    // nearest neighbor distance
-    double minDist = std::numeric_limits<double>::max();
-    for (int i = 0; i < atoms.size(); i++) {
-      if (i != currentIndex) {
-        double dist = cDistance(atoms[currentIndex]->getLocalPos(), atoms[i]->getLocalPos());
-        if (dist < minDist) minDist = dist;
-      }
+/**
+ * @brief Displays what atom is closest to the current atom and the distance between them
+ * TODO: Find out what to display here if multiple atoms are selected
+ */
+void showNearestNeighbor() {
+  double minDist = std::numeric_limits<double>::max();
+  for (int i = 0; i < atoms.size(); i++) {
+    if (i != currentIndex) {
+      double dist = cDistance(atoms[currentIndex]->getLocalPos(), atoms[i]->getLocalPos());
+      if (dist < minDist) minDist = dist;
     }
     debugLabels[2]->setText("Nearest neighbor: " + cStr(minDist / DIST_SCALE, 5) + " Ang");
 
-    // max force across all atoms
-    double maxForce = 0;
-    int maxForceIndex = 0;
-    for (int i = 0; i < atoms.size(); i++) {
-      double mag = atoms[i]->getForce().length();
-      if (mag > maxForce) {
-        maxForce = mag;
-        maxForceIndex = i;
-      }
+/**
+ * @brief Displays the greatest force applied to an atom in the system
+ */
+void showGreatestForce() {
+  double maxForce = 0;
+  int maxForceIndex = 0;
+  for (int i = 0; i < atoms.size(); i++) {
+    double mag = atoms[i]->getForce().length();
+    if (mag > maxForce) {
+      maxForce = mag;
+      maxForceIndex = i;
     }
-    debugLabels[3]->setText("Max force: " + cStr(maxForce, 5) + " (atom " + to_string(maxForceIndex) + ")");
+  }
+  debugLabels[3]->setText("Max force: " + cStr(maxForce, 5) + " (atom " + to_string(maxForceIndex) + ")");
+}
 
-    // position all debug labels
-    for (int i = 0; i < debugLabels.size(); i++) {
-      debugLabels[i]->setLocalPos(width - 250, 80 + i * 20);
-      debugLabels[i]->setShowEnabled(true);
+/**
+ * @brief Shows the atom indices on every atom
+ */
+void showAtomDebugLabels() {
+  for (int i = 0; i < debugAtomLabels.size(); i++) {
+    cVector3d toAtom = atoms[i]->getLocalPos() - camera->getLocalPos();
+    double depth = toAtom.dot(camera->getLookVector());
+    if (depth > 0) {
+      double scaleY = (0.5 * height) / tan(0.5 * camera->getFieldViewAngleRad());
+      double scaleX = scaleY;
+      double screenX = (toAtom.dot(camera->getRightVector()) / depth) * scaleX + 0.5 * width;
+      double screenY = (toAtom.dot(camera->getUpVector()) / depth) * scaleY + 0.5 * height;
+      debugAtomLabels[i]->setLocalPos((int) screenX, (int) screenY);
+      debugAtomLabels[i]->setShowEnabled(true);
+    } else {
+      debugAtomLabels[i]->setShowEnabled(false);
     }
+  }
+}
 
-    // atom index labels  
-    for (int i = 0; i < debugAtomLabels.size(); i++) {
-      cVector3d atomPos = atoms[i]->getLocalPos();
-      cVector3d camPos = camera->getLocalPos();
-      cVector3d camLook = camera->getLookVector();
-      cVector3d camUp = camera->getUpVector();
-      cVector3d camRight = camera->getRightVector();
-      cVector3d toAtom = atomPos - camPos;
-      double depth = toAtom.dot(camLook);
-      if (depth > 0) {
-        double fov = camera->getFieldViewAngleRad();
-        double scaleY = (0.5 * height) / tan(0.5 * fov);
-        double scaleX = scaleY;
-        double screenX = (toAtom.dot(camRight) / depth) * scaleX + 0.5 * width;
-        double screenY = (toAtom.dot(camUp) / depth) * scaleY + 0.5 * height;
-        debugAtomLabels[i]->setLocalPos((int)screenX, (int)screenY);
-        debugAtomLabels[i]->setShowEnabled(true);
-      } else {
-        debugAtomLabels[i]->setShowEnabled(false);
-      }
-    }
+/**
+ * @brief Shows various debug information
+ */
+void showDebugInfo() {
+  // current atom force magnitude
+  debugLabels[0]->setText("Force magnitude: " + cStr(atoms[currentIndex]->getForce().length(), 5));
 
+  // current atom position
+  cVector3d pos = atoms[currentIndex]->getLocalPos();
+  debugLabels[1]->setText("Atom pos: (" + cStr(pos.x(), 3) + ", " + cStr(pos.y(), 3) + ", " + cStr(pos.z(), 3) + ")");
+  showNearestNeighbor();
+  showGreatestForce();
+  // position all debug labels
+  for (int i = 0; i < debugLabels.size(); i++) {
+    debugLabels[i]->setLocalPos(width - 250, 80 + i * 20);
+    debugLabels[i]->setShowEnabled(true);
+  }
+
+  showAtomDebugLabels(); // atom index labels  
+}
+
+/**
+ * @brief Hides debug information
+ */
+void hideDebugInfo() {
+  for (chai3d::cLabel *label : debugLabels) {
+    label->setShowEnabled(false);
+  }
+  for (chai3d::cLabel *label : debugAtomLabels) {
+    label->setShowEnabled(false);
+  }
+}
+
+/**
+ * @brief Updates all labels
+ */
+void updateLabels() {
+  labelRates->setText(cStr(freqCounterGraphics.getFrequency(), 0) + " Hz / " +
+                      cStr(freqCounterHaptics.getFrequency(), 0) + " Hz");
+  labelRates->setLocalPos((int)(0.5 * (width - labelRates->getWidth())), 15);
+  labelRates->setShowEnabled(showDebug);
+
+  double x = hapticPosition.get(0);
+  double y = hapticPosition.get(1);
+  double z = hapticPosition.get(2);
+  hapticPositionLabel->setText("Position: " + cStr(x, 2) + ", " + cStr(y, 2) + ", " + cStr(z, 2));
+  hapticPositionLabel->setShowEnabled(showDebug);
+
+  updateCameraLabel(camera_pos, camera);
+  camera_pos->setShowEnabled(showDebug);
+
+  displayedTemperature.store(getSliderVal("Temperature", 1.0));
+  temperatureLabel->setText("Temperature: " + cStr(displayedTemperature.load(), 5) + " kT");
+
+  // TODO: figure out a way to use a bool instead of a string
+  string trueFalse = freezeAtoms.load() ? "true" : "false";
+  isFrozen->setText("Freeze simulation: " + trueFalse);
+  isFrozen->setLocalPos((width - isFrozen->getWidth()) - 5, 15);
+  isFrozen->setShowEnabled(showDebug);
+
+  screenshotLabel->setLocalPos(5, height - 20);
+  updateCounters(screenshotLabel, screenshotCounter);
+
+  writeConLabel->setLocalPos(5, height - 40);
+  updateCounters(writeConLabel, writeConCounter);
+
+  showHelpPanel();
+  
+  if (showDebug) {
+    showDebugInfo();
   } else {
-    for (chai3d::cLabel *label : debugLabels) {
-      label->setShowEnabled(false);
-    }
-    for (chai3d::cLabel *label : debugAtomLabels) {
-      label->setShowEnabled(false);
-    }
+    hideDebugInfo();
   }
 }
 
@@ -1543,15 +1608,6 @@ void relCamApplyForceToCurrent(cVector3d direction) {
     cDot(direction, look)
   );
 }
-
-// Adds a new label to the scene using the default style.
-void addLabel(cLabel *&label);
-
-// Updates the text label that displays the camera position.
-void updateCameraLabel(cLabel *&camera_pos, cCamera *&camera);
-
-// Writes the current atom configuration to a .con file.
-void writeToCon(string fileName);
 
 //==============================================================================
 /*
