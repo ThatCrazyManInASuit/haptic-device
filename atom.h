@@ -122,7 +122,7 @@ class Atom : public cShapeSphere {
         /**
          * @brief Update the atom's rendered velocity vector
          */
-        void updateVelVector();
+        void updateForceVector();
 
         /**
          * @brief Sets the color of the atom

@@ -264,7 +264,7 @@ void Atom::setVelVector(cShapeLine* newVelVector) {
     velVector = newVelVector;
 }
 
-void Atom::updateVelVector() {
+void Atom::updateForceVector() {
     // Create a line representing the forces felt on the atom
     cVector3d newPointNormalized = cAdd(this->getLocalPos(), this->getForce());
     this->getForce().normalizer(newPointNormalized);
