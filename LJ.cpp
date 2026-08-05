@@ -1563,31 +1563,9 @@ void updateGraphics(cWorld* world) {
 void runGraphicsLoop(cWorld* world, GLFWwindow* mainWindow, GLFWwindow* sliderWindow) {
   framebufferSizeCallback(mainWindow, width, height); // initialize framebuffer size
   // main graphic loop
-  // auto t1 = std::chrono::steady_clock::now();
   while (!glfwWindowShouldClose(mainWindow)) {
     glfwGetFramebufferSize(mainWindow, &width, &height); // framebuffer size in pixels (HiDPI-aware)
-    if (!hapticDevice) {
-      // Advance the sim by the slider-controlled fixed timestep. This used to be
-      // min()'d with the real inter-frame time, which capped the timestep at the
-      // frame duration on fast machines - so most of the Time Step slider's range
-      // produced no visible change. Using the fixed value directly makes the whole
-      // slider range (including the new slower minimum) actually take effect.
-      freqCounterHaptics.signal(1);
-
-      stepSimulation(cVector3d(0.0, 0.0, 0.0), simulationTimeStep.load() / ASE_UNITS_TO_FS, false);
-    } else {
-      cVector3d hapticPosition;
-      hapticDevice->getPosition(hapticPosition);
-      // auto t0 = std::chrono::steady_clock::now();
-      hapticForce = stepSimulation(hapticPosition, simulationTimeStep.load() / ASE_UNITS_TO_FS, true);
-      // t1 = std::chrono::steady_clock::now();
-      // auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0);
-      // std::cout << "Calculation time: " << diff.count() << std::endl;
-    }
     updateGraphics(world); // render graphics
-    // auto t2 = std::chrono::steady_clock::now();
-    // auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1);
-    // std::cout << "Graphics Update time: " << diff.count() << std::endl;
     glfwSwapBuffers(mainWindow); // swap buffers
     renderSliderWindow(mainWindow, sliderWindow);
     glfwPollEvents(); // process events
