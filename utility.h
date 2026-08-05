@@ -18,10 +18,14 @@ void addHotkeyLabel(std::string key, std::string text);
 // add a label to the world with default black text
 void addLabel(chai3d::cLabel *&label);
 
-// Update camera text
+/**
+ * @brief Updates the text label that displays the camera position.
+ */
 void updateCameraLabel(chai3d::cLabel *&camera_pos, chai3d::cCamera *&camera);
 
-// save configuration in .con file
+/**
+ * @brief Writes the current atom configuration to a .con file.
+ */
 void writeToCon(std::string fileName);
 
 std::string getExecutableDir();
@@ -80,3 +84,8 @@ void drawPill(double xStart, double xEnd, double y, double halfHeight, chai3d::c
 
 void framebufferSizeCallback(GLFWwindow *a_window, int a_width, int a_height);
 cVector3d scaledToRadius(const cVector3d &position, double radius);
+
+/**
+ * @brief Adds a new label to the scene using the default style.
+ */
+void addDebugLabel(std::string text);
