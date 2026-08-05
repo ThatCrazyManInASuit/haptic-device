@@ -108,7 +108,7 @@ std::vector<Atom *> atoms;
 // lines drawn between bonded atom pairs, keyed by sorted (atom index) pairs.
 // Lines are created lazily and hidden (not removed) when a pair un-bonds so
 // they can be cheaply re-shown if the pair drifts back within range.
-std::map<pair<int, int>, cShapeLine *> bondLines;
+std::map<pair<int, int>, chai3d::cShapeLine *> bondLines;
 
 std::vector<cLabel *> debugLabels; // Stores the labels that show debug values in the scene.
 
@@ -185,7 +185,9 @@ chai3d::cVector3d hapticPosition;
 
 chai3d::cVector3d extraForces; // Miscellaneous forces; reset when applied
 
-// Prints the startup banner and key instructions for the user.
+/**
+ * @brief Prints the startup banner.
+ */
 void printIntro() {
   cout << endl;
   cout << "-----------------------------------" << endl;
@@ -198,12 +200,18 @@ void printIntro() {
 
 /**
  * @brief Callback triggered when GLFW reports an error.
+ * @param errorCode the error code of the error
+ * @param description A UTF-8 encoded string describing the error
  */
 void errorCallback(int a_error, const char *a_description) {
   cout << "Error: " << a_description << endl;
 }
 
-// Configures the OpenGL context version used by the scene.
+/**
+ * @brief Configures the OpenGL context version used by the scene.
+ * @param majorVer the major version of GLFW to use
+ * @param minorVer the minor version of GLFW to use
+ */
 void setOpenGLVersion(int majorVer, int minorVer) {
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, majorVer);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, minorVer);
@@ -226,6 +234,11 @@ void configureGLFW(const chai3d::cStereoMode STEREO_MODE) {
       : glfwWindowHint(GLFW_STEREO, GL_FALSE);
 }
 
+/**
+ * @brief Initializes the main window using GLFW, setting all necessary callbacks. Also populates info about the window, such as the
+ *        framebuffer size.
+ * @return the main window of the simulation
+ */
 GLFWwindow* initializeMainWindow() {
   // compute desired size of window
   const GLFWvidmode *VIDEO_MODE = glfwGetVideoMode(glfwGetPrimaryMonitor());
@@ -271,8 +284,10 @@ GLFWwindow* initializeMainWindow() {
   return window;
 }
 
-// Initializes the GLEW OpenGL extension loader.
-void initializeGLEW() {
+/**
+ * @brief Ensures that GLEW is initialized.
+ */
+void ensureGLEW() {
   #ifdef GLEW_VERSION
   if (glewInit() != GLEW_OK) {
     glfwTerminate();
@@ -281,7 +296,10 @@ void initializeGLEW() {
   #endif
 }
 
-// Creates the CHAI3D world object that hosts the simulation.
+/**
+ * @brief Initializes world that hosts the simulation.
+ * @return the CHAI3D world object
+ */
 cWorld* initializeWorld() {
   cWorld *world = new cWorld();
   world->m_backgroundColor.setWhite();
@@ -289,7 +307,11 @@ cWorld* initializeWorld() {
   return world;
 }
 
-// Stops the simulation and frees the created resources.
+/**
+ * @brief Stops the simulation and frees the created resources. Skylar note: I'm not sure how
+ *        neccessary it is to free resources, since the program ending should automatically free
+ *        all memory. Food for thought.
+ */
 void close() { // stop the simulation
   static bool closed = false;
   if (!closed) {
@@ -309,7 +331,11 @@ void close() { // stop the simulation
   }
 }
 
-// Creates and configures the camera used to render the simulation.
+/**
+ * @brief Creates and configures the camera used to render the simulation.
+ * @param world the CHAI3D world object the camera will be added to
+ * @param STEREO_MODE the stereo mode the camera should be in
+ */
 void initializeCamera(cWorld* world, const chai3d::cStereoMode STEREO_MODE) {
   camera = new chai3d::cCamera(world);
   world->addChild(camera);
@@ -354,7 +380,10 @@ void initializeCamera(cWorld* world, const chai3d::cStereoMode STEREO_MODE) {
   }
 }
 
-// Creates the light source that illuminates the atoms.
+/**
+ * @brief Creates the light source that illuminates the scene.
+ * @param world the CHAI3D world object to add the light to
+ */
 void initializeLight(cWorld* world) {
   cSpotLight *light = new cSpotLight(world); // create a light source
   light->setEnabled(true); // enable light source
@@ -366,7 +395,9 @@ void initializeLight(cWorld* world) {
   world->addChild(light); // attach light to camera
 }
 
-// Connects to, or prepares, the available haptic device.
+/**
+ * @brief Connects to, or prepares, the available haptic device.
+ */
 void initializeHapticDevice() {
   cHapticDeviceHandler *handler;
   handler = new cHapticDeviceHandler(); // create a haptic device handler
@@ -388,7 +419,9 @@ void initializeHapticDevice() {
   }
 }
 
-// Adds labels that annotate each atom with its index.
+/**
+ * @brief Adds labels that annotate each atom with its index.
+ */
 void initializeAtomLabels() {
   cFontPtr atomLabelFont = NEW_CFONT_CALIBRI_20();
   for (int i = 0; i < atoms.size(); i++) {
@@ -401,14 +434,24 @@ void initializeAtomLabels() {
   }
 }
 
-// Adds a debug label to the front layer of the scene.
-void addDebugLabel(std::string text);
-
+/**
+ * @brief A helper that adds a position that is scaled to an indicated radius
+ * @param positions vector of atom positions
+ * @param x x-val of the vector
+ * @param y y-val of the vector
+ * @param z z-val of the vector
+ * @param radius length to scale the vector to in world units
+ */
 static void addScaledVertex(vector<cVector3d> &positions, double x, double y, double z, double radius) {
   positions.push_back(scaledToRadius(cVector3d(x, y, z), radius));
 }
 
-// Generates positions for a regular polyhedron shell with k vertices.
+/**
+ * @brief Generates positions for a regular polyhedron shell with k vertices.
+ * @param k the number of vertices the polyhedron has
+ * @param radius the radius of the polyhedron in world units
+ * @return a vector of positions that form the polyhedron
+ */
 vector<cVector3d> polyhedronCords(int k, double radius) {
   vector<cVector3d> positions;
   positions.reserve(k);
@@ -479,7 +522,12 @@ vector<cVector3d> polyhedronCords(int k, double radius) {
   return positions;
 }
 
-// Generates positions for a Fibonacci-atom shell with uniform coverage.
+/**
+ * @brief Generates positions for a Fibonacci-sphere shell with uniform coverage.
+ * @param k the number of vertices the shell has
+ * @param radius the radius of the shell in world units
+ * @return a vector of positions that form the Fibonacci-sphere shell
+ */
 vector<cVector3d> fibonacciCords(int k, double radius) {
   vector<cVector3d> positions;
   positions.reserve(k);
@@ -509,7 +557,12 @@ vector<cVector3d> fibonacciCords(int k, double radius) {
   return positions;
 }
 
-// Generates positions for a Thomson shell using iterative repulsion.
+/**
+ * @brief Generates positions for a Thomson problem solution using iterative repulsion.
+ * @param k the number of vertices the shell has
+ * @param radius the radius of the shell in world units
+ * @return a vector of positions that form the Thomson problem solution
+ */
 vector<cVector3d> thomsonCords(int k, double radius) {
   vector<cVector3d> positions = fibonacciCords(k, radius);
   if (k <= 1) {
@@ -550,7 +603,12 @@ vector<cVector3d> thomsonCords(int k, double radius) {
   return positions;
 }
 
-// Generates shell positions for a cluster of k atoms around the current atom.
+/**
+ * @brief Generates shell positions for a cluster of atoms with a given radius.
+ * @param k the number of vertices the shell has
+ * @param radius the radius of the shell in Angstroms
+ * @return a vector of positions that form the shell
+ */
 vector<cVector3d> generateShellPositions(int k, double radiusAngstroms) {
   
 
@@ -567,7 +625,14 @@ vector<cVector3d> generateShellPositions(int k, double radiusAngstroms) {
   return fibonacciCords(k, radius);
 }
 
-// Creates and configures an atom atom with the requested material and size.
+/**
+ * @brief Initializes an atom
+ * @param world the CHAI3D object to add the atom to
+ * @param texture the texture the atom should use
+ * @param atomicNumber the atomic number of the atom
+ * @param radius the radius of the atom
+ * @return a pointer to the initialized atom
+ */
 Atom* initializeAtom(cWorld* world, cTexture2dPtr texture, int atomicNumber, double radius = SPHERE_RADIUS) {
   Atom *new_atom = new Atom(radius, atomicNumber); // create a atom and define its radius
   atoms.push_back(new_atom); // store pointer to atom
@@ -581,7 +646,17 @@ Atom* initializeAtom(cWorld* world, cTexture2dPtr texture, int atomicNumber, dou
   return new_atom;
 }
 
-void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, cTexture2dPtr texture, int argc, char *argv[]) {
+/**
+ * @brief Places atoms by reading in configuration/POSCARs 
+ * @param world The CHAI3D world object to add the atoms to
+ * @param aseCell the 3x3 ASE cell matrix, flattened into a 9-element array
+ * @param asePbc the periodic boundary condition to use
+ * @param texture the texture to use for the atoms
+ * @param argc how many arguments were passed into the simulation
+ * @param argv array of characters that make up the arguments
+ */
+void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell,
+    std::array<int, 3>& asePbc, cTexture2dPtr texture, int argc, char *argv[]) {
   AseStructureData structure;
   // Optional repeat factors: argv[6]=x, argv[7]=y, argv[8]=z. Each defaults to
   // 1 if not given, and values < 1 are ignored (they would zero out the cell).
@@ -609,7 +684,7 @@ void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::a
   const int nAtoms = static_cast<int>(positions.size());
   chai3d::cVector3d centerPos;
   for (int i = 0; i < nAtoms; i++) {
-    Atom *newAtom = initializeAtom(world, texture, startingAtomicNrs[i], startingRadii[i] * DIST_SCALE); // Create atom pointer`
+    Atom *newAtom = initializeAtom(world, texture, startingAtomicNrs[i], startingRadii[i] * DIST_SCALE); // Create atom pointer
     // Set the positions of all atoms
     if (i == 0) {
       // make very first atom the current atom
@@ -636,7 +711,15 @@ void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::a
   }
 }
 
-// Places atoms into the scene from the supplied ASE structure or generated shell.
+/**
+ * @brief Places atoms into the scene from the supplied ASE structure or generated shell.
+ * @param world The CHAI3D world object to add the atoms to
+ * @param aseCell the 3x3 ASE cell matrix, flattened into a 9-element array
+ * @param asePbc the periodic boundary condition to use
+ * @param texture the texture to use for the atoms
+ * @param argc how many arguments were passed into the simulation
+ * @param argv array of characters that make up the arguments
+ */
 void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int argc, char *argv[]) {
   cTexture2dPtr texture = cTexture2d::create(); // create texture
   // load texture file
@@ -678,7 +761,13 @@ void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::arra
   }
 }
 
-// Configures the selected calculator based on CLI arguments and structure data.
+/**
+ * @brief Configures the selected calculator based on CLI arguments and structure data.
+ * @param argc how many arguments were passed into the simulation
+ * @param argv array of characters that make up the arguments
+ * @param aseCell the 3x3 ASE cell matrix, flattened into a 9-element array
+ * @param asePbc the periodic boundary condition to use
+ */
 void initializeCalculator(int argc, char *argv[], std::array<double, 9> aseCell,
     std::array<int, 3> asePbc) {
     if (argc < 4) {
@@ -706,7 +795,9 @@ void initializeCalculator(int argc, char *argv[], std::array<double, 9> aseCell,
     }
 }
 
-// Updates the potential label to match the current energy surface.
+/**
+ * @brief Updates the potential label to match the current energy surface.
+ */
 void initializePotentialLabel() {
   // set energy surface label
   potentialLabel->setLocalPos(0, 0);
@@ -727,7 +818,9 @@ void initializePotentialLabel() {
   potentialLabel->setText("Potential energy surface: " + potentialName);
 }
 
-// Creates the labels that display simulation status and values.
+/**
+ * @brief Creates the labels that display simulation status and values.
+ */
 void initializeLabels() {
   addLabel(hapticPositionLabel); // label to read haptic device
   addLabel(labelRates); // create a label to display the haptic and graphic rate of the simulation
@@ -772,7 +865,9 @@ void initializeLabels() {
   updateCameraLabel(camera_pos, camera);
 }
 
-// Creates the hotkey help labels shown in the UI panel.
+/**
+ * @brief Creates the hotkey help labels shown in the UI panel.
+ */
 void initializeHotkeyLabels() {
   addHotkeyLabel("f", "toggle fullscreen");
   addHotkeyLabel("q, ESC", "quit program");
@@ -796,7 +891,9 @@ void initializeHotkeyLabels() {
   addHotkeyLabel("CTRL", "toggle help panel");
 }
 
-// Initializes the energy-plot scope used to visualize potential energy.
+/**
+ * @brief Initializes the energy-plot scope used to visualize potential energy.
+ */
 void initializePotentialEnergyPlot() {
   // create a scope to plot potential energy
   scope = new cScope();
@@ -835,7 +932,9 @@ void initializePotentialEnergyPlot() {
   // scope_lower->m_fontColor.setRed();
 }
 
-// Builds the help panel overlay that lists the hotkeys.
+/**
+ * @brief Builds the help panel overlay that lists the hotkeys.
+ */
 void initializeHelpPanel() {
   cColorf panelColor = cColorf();
   panelColor.setBlueCadet();
@@ -875,8 +974,15 @@ vector<Atom*> getSelectedAtoms() {
   return influenced;
 }
 
-cVector3d getNewAtomPosition(Atom *atom, cVector3d &prev_position, const double dT) {
-  cVector3d x0 = atom->getLocalPos();
+/**
+ * @brief Gets the next position of an atom using Verlet integration
+ * @param atom the atom to get the next position of
+ * @param prev_position the previous position of the atom
+ * @param dT how big the time step is, in ASE time units
+ * @return the new position of the atom
+ */
+cVector3d getNewAtomPosition(Atom *atom, const double dT) {
+  cVector3d x0 = atom->getLatestPos();
   cVector3d a1 = atom->getForce() / atom->getMass() * DIST_SCALE;
   cVector3d a0 = atom->getPrevForce() / atom->getMass() * DIST_SCALE;
 
@@ -935,6 +1041,17 @@ cVector3d getAverageAtomGroupForce(const vector<Atom*> &selected) {
   return force / static_cast<double>(selected.size());
 }
 
+/**
+ * @brief Reads the buttons of the haptic device and runs functions respectively:
+ *        0: undefined
+ *        1: Switches which atom is selected
+ *        2: Rotates the camera
+ *        3: undefined
+ * @param buttons an input array of whether each button is pressed or not
+ * @param buttonReset an input array of whether each button has been reset or not; this prevents
+ *                    holding down the button and "spamming" a function. One button press is one
+ *                    function call
+ */
 void readButtons(bool buttons[4], bool buttonReset[4]) {
   for (int i = 0; i < 4; i++) {
     hapticDevice->getUserSwitch(i, buttons[i]);
@@ -960,7 +1077,9 @@ void readButtons(bool buttons[4], bool buttonReset[4]) {
   }
 }
 
-// Runs the main haptic simulation loop.
+/**
+ * @brief Runs the main haptic simulation loop.
+ */
 void updateHaptics() {
   // simulation in now running
   simulationRunning = true;
@@ -983,41 +1102,27 @@ void updateHaptics() {
     readButtons(buttons, buttonReset);
     initializePrevPositions();
     while (simulationRunning) {
-      /////////////////////////////////////////////////////////////////////
-      // SIMULATION TIME
-      /////////////////////////////////////////////////////////////////////
+      
+      freqCounterHaptics.signal(1); // signal frequency counter
+      
+      cVector3d position; 
+      hapticDevice->getPosition(position); // read position
 
-      // signal frequency counter
-      freqCounterHaptics.signal(1);
-      /////////////////////////////////////////////////////////////////////////
-      // READ HAPTIC DEVICE
-      /////////////////////////////////////////////////////////////////////////
-      // read position
-      cVector3d position;
-      hapticDevice->getPosition(position);
-
-      // Scale position to use more of the screen
-      // increase to use more of the screen
-      position *= 2.0;
-      hapticPosition = position;
-
-      /////////////////////////////////////////////////////////////////////////
-      // UPDATE SIMULATION
-      /////////////////////////////////////////////////////////////////////////
-      // Update current atom based on if the user pressed the far left button
-      // The point of button2_changed is to make it so that it only switches one
-      // atom if the button is touched Otherwise it flips out
+      // Scale position to use more of the screen; increase to use more of the screen
+      const double HAPTIC_SCALE = 2.0;
+      hapticPosition = position * HAPTIC_SCALE;
       
       readButtons(buttons, buttonReset);
 
-
-      // Hard safety ceiling on the force (N) actually sent to the physical device. 
+      // Hard safety ceiling on the force (N) actually sent to the physical device.
+      // The Novint Falcon haptic device can only output 2 lbf (8.9 N) of force.
+      // Since the haptic device renders forces such that 1 eV/Å = 1 N, using the device's full
+      // 8.9 N capacity should be rare, if the simulation is correct.
       const double MAX_HAPTIC_OUTPUT_FORCE = 100.0;
 
-      // scale by the user-configurable feedback intensity, then apply a hard
-      // safety ceiling regardless of that scale - so a spike (e.g. two atoms
-      // overlapping) can never slam the device at full force even if
-      // intensity is set to 100%
+      // scale by the user-configurable feedback intensity, then apply a hard safety ceiling
+      // regardless of that scale - so a spike (e.g. two atoms overlapping) can never slam the
+      // device at full force even if intensity is set to 100%
       hapticDevice->setForce(clampVectorMagnitude(hapticForce * hapticForceScale.load(), MAX_HAPTIC_OUTPUT_FORCE));
     }
     // close  connection to haptic device
@@ -1033,7 +1138,9 @@ void updateHaptics() {
   
 }
 
-// Starts the background haptics thread used for simulation updates.
+/**
+ * @brief Starts the background haptics thread used for simulation updates.
+ */
 void initializeHapticThread() {
   cThread *hapticsThread = nullptr; // create a thread which starts the main haptics rendering loop
   if (hapticDevice) {
@@ -1043,9 +1150,6 @@ void initializeHapticThread() {
   }
 }
 
-// Recomputes which atom pairs are within BOND_DISTANCE_THRESHOLD of each
-// other and shows/hides/creates the cShapeLine connecting each bonded pair.
-// Must be called with sceneMutex held.
 /**
  * @brief Updates a group of selected atoms using force mode
  * @param selectedIndices list of the indices of selected atoms
@@ -1247,6 +1351,12 @@ void initializePhysicsThread() {
   physicsThreadStarted.store(true);
   std::cout << "Physics thread started!" << std::endl;
 }
+
+/**
+ *  pre: sceneMutex is locked
+ *  @brief Recomputes which atom pairs are within BOND_DISTANCE_THRESHOLD of each other and
+ *         shows/hides/creates the rendered line connecting each bonded pair.
+ */
 void updateBonds(cWorld* world) {
   if (!renderBonds.load()) {
     for (auto &entry : bondLines) {
@@ -1290,6 +1400,10 @@ void updateBonds(cWorld* world) {
   }
 }
 
+/**
+ * @brief Updates counters based on value (?)
+ * TODO: Unsure of the actual purpose of this function. Must find out.
+ */
 void updateCounters(cLabel *label, std::atomic<int> &counter) {
   int value = counter.load();
   if (value == 5000) {
@@ -1300,37 +1414,10 @@ void updateCounters(cLabel *label, std::atomic<int> &counter) {
   counter--;
 }
 
-void updateLabels() {
-  const bool debugVisible = showDebug;
-
-  labelRates->setText(cStr(freqCounterGraphics.getFrequency(), 0) + " Hz / " +
-                      cStr(freqCounterHaptics.getFrequency(), 0) + " Hz");
-  labelRates->setLocalPos((int)(0.5 * (width - labelRates->getWidth())), 15);
-  labelRates->setShowEnabled(debugVisible);
-
-  double x = hapticPosition.get(0);
-  double y = hapticPosition.get(1);
-  double z = hapticPosition.get(2);
-  hapticPositionLabel->setText("Position: " + cStr(x, 2) + ", " + cStr(y, 2) + ", " + cStr(z, 2));
-  hapticPositionLabel->setShowEnabled(debugVisible);
-
-  updateCameraLabel(camera_pos, camera);
-  camera_pos->setShowEnabled(debugVisible);
-
-  displayedTemperature.store(getSliderVal("Temperature", 1.0));
-  temperatureLabel->setText("Temperature: " + cStr(displayedTemperature.load(), 5) + " kT");
-
-  string trueFalse = freezeAtoms.load() ? "true" : "false";
-  isFrozen->setText("Freeze simulation: " + trueFalse);
-  isFrozen->setLocalPos((width - isFrozen->getWidth()) - 5, 15);
-  isFrozen->setShowEnabled(debugVisible);
-
-  screenshotLabel->setLocalPos(5, height - 20);
-  updateCounters(screenshotLabel, screenshotCounter);
-
-  writeConLabel->setLocalPos(5, height - 40);
-  updateCounters(writeConLabel, writeConCounter);
-
+/**
+ * @brief Displays the help panel, which shows hotkeys/keybinds to interact with the simulation
+ */
+void showHelpPanel() {
   // Position the help panel, its header, and its hotkey rows relative to the
   // top of the window (rather than a fixed offset from a hypothetical taller
   // window). Row spacing shrinks if needed so every hotkey stays on-screen
@@ -1340,18 +1427,21 @@ void updateLabels() {
   const double BOTTOM_MARGIN = 20.0;    // keep the last row off the panel's edge
   const double MAX_HELP_PANEL_HEIGHT = 500.0;
   const double DEFAULT_ROW_SPACING = 25.0;
-
-  // Size and place the panel first. Its height is capped at MAX_HELP_PANEL_HEIGHT,
-  // so the rows must be laid out against the PANEL height, not the raw window
-  // height, or the bottom rows spill out below the panel on tall windows.
-  double helpPanelHeight = cMin(MAX_HELP_PANEL_HEIGHT, cMax(0.0, (double)height - TOP_MARGIN));
-  helpPanel->setSize(520, helpPanelHeight);
+  const double HELP_PANEL_WIDTH = 520.0;
+  const double HELP_PANEL_RIGHT_MARGIN = 550.0;
+  const double HELP_HEADER_RIGHT_MARGIN = 490.0;
+  const double HEADER_TOP_OFFSET = 20.0; // unsure what this really is...
   double panelTop = height - TOP_MARGIN;
-  helpPanel->setLocalPos(width - 550, panelTop - helpPanelHeight);
-  helpHeader->setLocalPos(width - 490, panelTop - HEADER_RESERVE + 20);
+  // Size and place the panel first. Its height is capped at MAX_HELP_PANEL_HEIGHT, so the rows
+  // must be laid out against the PANEL height, not the raw window height, or the bottom rows spill
+  // out below the panel on tall windows.
+  double helpPanelHeight = cMin(MAX_HELP_PANEL_HEIGHT, cMax(0.0, panelTop));
+  helpPanel->setSize(HELP_PANEL_WIDTH, helpPanelHeight);
+  helpPanel->setLocalPos(width - HELP_PANEL_RIGHT_MARGIN, panelTop - helpPanelHeight);
+  helpHeader->setLocalPos(width - HELP_HEADER_RIGHT_MARGIN, panelTop - HEADER_RESERVE + HEADER_TOP_OFFSET);
 
-  // Shrink row spacing if the rows would not otherwise fit inside the panel
-  // (between the header at the top and a small margin above the bottom edge).
+  // Shrink row spacing if the rows would not otherwise fit inside the panel (between the header at
+  // the top and a small margin above the bottom edge).
   int numHotkeyRows = static_cast<int>(hotkeyKeys.size());
   double rowSpacing = DEFAULT_ROW_SPACING;
   if (numHotkeyRows > 1) {
@@ -1368,15 +1458,7 @@ void updateLabels() {
     hotkeyKeys[i]->setLocalPos(width - 530, rowY);
     hotkeyFunctions[i]->setLocalPos(width - 350, rowY);
   }
-  
-  if (showDebug) {
-    // current atom force magnitude
-    cVector3d force = atoms[currentIndex]->getForce();
-    debugLabels[0]->setText("Force magnitude: " + cStr(force.length(), 5));
-
-    // current atom position
-    cVector3d pos = atoms[currentIndex]->getLocalPos();
-    debugLabels[1]->setText("Atom pos: (" + cStr(pos.x(), 3) + ", " + cStr(pos.y(), 3) + ", " + cStr(pos.z(), 3) + ")");
+}
 
 /**
  * @brief Displays what atom is closest to the current atom and the distance between them
@@ -1389,7 +1471,9 @@ void showNearestNeighbor() {
       double dist = cDistance(atoms[currentIndex]->getLocalPos(), atoms[i]->getLocalPos());
       if (dist < minDist) minDist = dist;
     }
-    debugLabels[2]->setText("Nearest neighbor: " + cStr(minDist / DIST_SCALE, 5) + " Ang");
+  }
+  debugLabels[2]->setText("Nearest neighbor: " + cStr(minDist / DIST_SCALE, 5) + " Ang");
+}
 
 /**
  * @brief Displays the greatest force applied to an atom in the system
@@ -1502,7 +1586,9 @@ void updateLabels() {
   }
 }
 
-// Updates all scene objects that depend on the current simulation state.
+/**
+ * @brief Updates all scene objects that depend on the current simulation state.
+ */
 void updateGraphics(cWorld* world) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   std::atomic<int> displayedAnchoredCount(0);
@@ -1519,6 +1605,9 @@ void updateGraphics(cWorld* world) {
     atom->getVelVector()->setShowEnabled(showForceVectors);
     if (atom->isAnchor()) {
       anchoredCount++;
+    }
+    if (atom->hasNextPos()) {
+      atom->setLocalPos(atom->nextPos());
     }
   }
   updateBonds(world);
@@ -1560,6 +1649,9 @@ void updateGraphics(cWorld* world) {
   #endif
 }
 
+/**
+ * @brief Runs the graphics loop
+ */
 void runGraphicsLoop(cWorld* world, GLFWwindow* mainWindow, GLFWwindow* sliderWindow) {
   framebufferSizeCallback(mainWindow, width, height); // initialize framebuffer size
   // main graphic loop
@@ -1574,7 +1666,9 @@ void runGraphicsLoop(cWorld* world, GLFWwindow* mainWindow, GLFWwindow* sliderWi
   }
 }
 
-// Applies some force to the atom relative to the camera
+/**
+ * @brief Applies some force to the atom relative to the camera
+ */
 void relCamApplyForceToCurrent(cVector3d direction) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   chai3d::cVector3d right = camera->getRightVector();
@@ -1593,10 +1687,10 @@ void relCamApplyForceToCurrent(cVector3d direction) {
  This program simulates LJ clusters of varying sizes using modified
  atom primitives (atom.cpp). All dynamics and collisions are computed in the
  haptics thread.
+ TODO: This is a somewhat outdated description, and should be replaced.
  */
 //==============================================================================
-// current camera
-int curr_camera = 1;
+
 
 // on Windows, double-clicking the .exe directly (rather than launching it
 // through launcher/main.py, which supplies the required arguments) used to
@@ -1613,7 +1707,7 @@ int runApplication(int argc, char *argv[]) {
   // OPEN GL - WINDOW DISPLAY
   configureGLFW(STEREO_MODE);
   GLFWwindow* mainWindow = initializeMainWindow();
-  initializeGLEW();
+  ensureGLEW();
 
   // WORLD - CAMERA - LIGHTING
   cWorld* world = initializeWorld();
@@ -1703,9 +1797,10 @@ int runApplication(int argc, char *argv[]) {
 
   GLFWwindow* sliderWindow = initializeSliderWindow(mainWindow);
   
-
+  simulationRunning = true;
   // START SIMULATION
   initializeHapticThread();
+  initializePhysicsThread();
   
   // MAIN GRAPHIC LOOP
   runGraphicsLoop(world, mainWindow, sliderWindow);
@@ -1809,8 +1904,13 @@ bool setLiveForceScale(double value) {
   return true;
 }
 
+/**
+ * @brief Switches the camera view.
+ * TODO: When polar radians are 0 or PI, they are practically the same view. Something to note.
+ */
 void switchCamera() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  static int curr_camera = 1;
   switch (curr_camera) {
     case 1:
       camera->setSphericalPolarRad(0);
@@ -1833,6 +1933,9 @@ void switchCamera() {
   curr_camera++;
 }
 
+/**
+ * @brief Switches the atom currently being selected. Will not switch to anchored atoms.
+ */
 void switchCurrentAtom() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   if (!atoms.empty()) {
