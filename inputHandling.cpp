@@ -7,8 +7,6 @@
 #include <mutex>
 #include <algorithm>
 
-bool fullscreen = false; // Enables the full-screen window mode when true.
-MouseState mouseState = MOUSE_IDLE; // mouse state
 enum MouseState { 
   MOUSE_IDLE,
   MOUSE_SELECTION,
@@ -29,26 +27,35 @@ double selectionCurrentX;
 double selectionCurrentY;
 cShapeLine *selectionBoxLines[4] = {nullptr, nullptr, nullptr, nullptr};
 
-// CHAI3D renders into the framebuffer, which is measured in pixels. GLFW cursor
-// coordinates are in window coordinates, so derive the conversion from the
-// actual framebuffer/window ratio. This is more reliable than content scale on
-// macOS Retina displays, where the two can diverge depending on monitor/window
-// state.
+/**
+ * @brief Scales a window coordinate into a CHAI3D compatible framebuffer/pixel coordinate.
+ * @param window the window to use to scale
+ * @param a_x the x-pos of the coordinate
+ * @param a_y the y-pos of the coordinate
+ */
 static void scaleCursorToPixels(GLFWwindow *window, double &a_x, double &a_y) {
+  // CHAI3D renders into the framebuffer, which is measured in pixels. GLFW cursor
+  // coordinates are in window coordinates, so derive the conversion from the
+  // actual framebuffer/window ratio. This is more reliable than content scale on
+  // macOS Retina displays, where the two can diverge depending on monitor/window
+  // state.
   int windowWidth = 0;
   int windowHeight = 0;
-  int framebufferWidth = 0;
-  int framebufferHeight = 0;
+ 
   glfwGetWindowSize(window, &windowWidth, &windowHeight);
-  glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
-  if (windowWidth <= 0 || windowHeight <= 0) {
-    return;
+  
+  if (windowWidth > 0 && windowHeight > 0) {
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+    a_x *= static_cast<double>(framebufferWidth) / static_cast<double>(windowWidth);
+    a_y *= static_cast<double>(framebufferHeight) / static_cast<double>(windowHeight);
   }
-
-  a_x *= static_cast<double>(framebufferWidth) / static_cast<double>(windowWidth);
-  a_y *= static_cast<double>(framebufferHeight) / static_cast<double>(windowHeight);
 }
 
+/**
+ * @brief Initializes the selection box lines if they are still null.
+ */
 static void ensureSelectionBoxLines() {
   for (int i = 0; i < 4; i++) {
     if (selectionBoxLines[i] == nullptr) {
@@ -63,6 +70,9 @@ static void ensureSelectionBoxLines() {
   }
 }
 
+/**
+ * @brief Makes the selection box visible.
+ */
 static void setSelectionBoxVisible(bool visible) {
   ensureSelectionBoxLines();
   for (int i = 0; i < 4; i++) {
@@ -70,6 +80,9 @@ static void setSelectionBoxVisible(bool visible) {
   }
 }
 
+/**
+ * @brief Updates the selection box based on selection starts.
+ */
 static void updateSelectionBoxLines() {
   ensureSelectionBoxLines();
   const double left = std::min(selectionStartX, selectionCurrentX);
@@ -87,6 +100,13 @@ static void updateSelectionBoxLines() {
   selectionBoxLines[3]->m_pointB = cVector3d(left, bottom, 0);
 }
 
+/**
+ * @brief Projects the atom to the screen, getting the screen coordinates the atom is at
+ * @param atom the atom to project
+ * @param screenX the variable to store the x-pos
+ * @param screenY the variable to store the y-pos
+ * @return true if projection succeeded, false if projection is not possible
+ */
 static bool projectAtomToScreen(Atom *atom, double &screenX, double &screenY) {
   cVector3d atomPos = atom->getLocalPos();
   cVector3d toAtom = atomPos - camera->getLocalPos();
@@ -101,6 +121,9 @@ static bool projectAtomToScreen(Atom *atom, double &screenX, double &screenY) {
   return true;
 }
 
+/**
+ * @brief Selects atoms that are within the selection box.
+ */
 static void selectAtomsInBox() {
   const double left = std::min(selectionStartX, selectionCurrentX);
   const double right = std::max(selectionStartX, selectionCurrentX);
@@ -125,8 +148,13 @@ static void selectAtomsInBox() {
   }
 }
 
+/**
+ * @brief Toggles fullscreen on for the given window
+ * @param window the window to make fullscreen
+ */
 void toggleFullscreen(GLFWwindow* window) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  static bool fullscreen = false; // Enables the full-screen window mode when true.
   fullscreen = !fullscreen;
   GLFWmonitor *monitor = glfwGetPrimaryMonitor();
   const GLFWvidmode *mode = glfwGetVideoMode(monitor);
@@ -144,6 +172,9 @@ void toggleFullscreen(GLFWwindow* window) {
   }
 }
 
+/**
+ * @brief Unanchors all atoms
+ */
 void unanchorAtoms() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   for (auto i{0}; i < atoms.size(); i++) {
@@ -153,6 +184,9 @@ void unanchorAtoms() {
   }
 }
 
+/**
+ * @brief Takes a screenshot of the simulation
+ */
 void saveScreenshot() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   cImagePtr image = cImage::create();
@@ -169,6 +203,11 @@ void saveScreenshot() {
   screenshotCounter = 5000;
 }
 
+/**
+ * @brief Saves the current structure as a configuration file
+ * TODO: This method is pretty complicated... I can hardly trace how it works! It certainly needs
+ *       some comments/documentation to explain itself.
+ */
 void saveConFile() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   ofstream writeFile;
@@ -200,6 +239,9 @@ void saveConFile() {
   cout << "LOGGED AT " + date + " atoms" + to_string(index) + ".con" << endl;
 }
 
+/**
+ * @brief Anchors all atoms
+ */
 void anchorAtoms() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   for (auto i{0}; i < atoms.size(); i++) {
@@ -209,6 +251,10 @@ void anchorAtoms() {
   }
 }
 
+/**
+ * @brief Moves the camera vertically
+ * @param up Whether the camera should move up or not. If false, the camera will move down.
+ */
 void moveCameraVertical(bool up) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   int direction = up ? 1 : -1;
@@ -221,6 +267,10 @@ void moveCameraVertical(bool up) {
   updateCameraLabel(camera_pos, camera);
 }
 
+/**
+ * @brief Moves the camera horizontally
+ * @param right Whether the camera should move right or not. If false, the camera will move left.
+ */
 void moveCameraHorizontal(bool right) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   int direction = right ? 1 : -1;
@@ -233,6 +283,10 @@ void moveCameraHorizontal(bool right) {
   updateCameraLabel(camera_pos, camera);
 }
 
+/**
+ * @brief Zooms the camera in
+ * @param zoomIn Whether the camera should zoom in or not. If false, the camera will zoom out.
+ */
 void zoomCamera(bool zoomIn) {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   int direction = zoomIn ? 1 : -1;
@@ -243,6 +297,9 @@ void zoomCamera(bool zoomIn) {
   }
 }
 
+/**
+ * @brief Resets the camera's rotation and radius
+ */
 void resetCamera() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   camera->setSphericalPolarRad(0);
@@ -251,6 +308,9 @@ void resetCamera() {
   updateCameraLabel(camera_pos, camera);
 }
 
+/**
+ * @brief Toggles the help panel on/off
+ */
 void toggleHelpPanel() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   helpPanel->setShowPanel(!helpPanel->getShowPanel());
@@ -261,6 +321,9 @@ void toggleHelpPanel() {
   }
 }
 
+/**
+ * @brief A callback to handle a key inputs. This callback handles all keyboard inputs/hotkeys
+ */
 void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action, int a_mods) {
   const double KEYBOARD_MOVE = 5.0;
   static bool transparentAtoms = false;
@@ -364,56 +427,69 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action, 
   }
 }
 
+/**
+ * @brief A callback that handles mouse motion
+ * @param a_window the window to handle mouse motion in
+ * @param a_posX the x-pos of the mouse
+ * @param a_posY the y-pos of the mouse
+ */
 void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
-    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-    if (mouseState == MOUSE_BOX_SELECTION) {
-        double posX = a_posX, posY = a_posY;
-        scaleCursorToPixels(a_window, posX, posY);
-        selectionCurrentX = posX;
-        selectionCurrentY = height - posY;
-        updateSelectionBoxLines();
-        setSelectionBoxVisible(true);
-    } else if ((selectedAtom != nullptr) && (mouseState == MOUSE_SELECTION) &&
-        (selectedAtom->isAnchor())) {
-        // get the vector that goes from the camera to the selected point (mouse
-        // click)
-        cVector3d vCameraObject = selectedPoint - camera->getLocalPos();
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  if (mouseState == MOUSE_BOX_SELECTION) {
+    double posX = a_posX, posY = a_posY;
+    scaleCursorToPixels(a_window, posX, posY);
+    selectionCurrentX = posX;
+    selectionCurrentY = height - posY;
+    updateSelectionBoxLines();
+    setSelectionBoxVisible(true);
+  } else if ((selectedAtom != nullptr) && (mouseState == MOUSE_SELECTION) &&
+      (selectedAtom->isAnchor())) {
+    // get the vector that goes from the camera to the selected point (mouse
+    // click)
+    cVector3d vCameraObject = selectedPoint - camera->getLocalPos();
 
-        // get the vector that point in the direction of the camera. ("where the
-        // camera is looking at")
-        cVector3d vCameraLookAt = camera->getLookVector();
+    // get the vector that point in the direction of the camera. ("where the
+    // camera is looking at")
+    cVector3d vCameraLookAt = camera->getLookVector();
 
-        // compute the angle between both vectors
-        double angle = cAngle(vCameraObject, vCameraLookAt);
+    // compute the angle between both vectors
+    double angle = cAngle(vCameraObject, vCameraLookAt);
 
-        // compute the distance between the camera and the plane that intersects the
-        // object and which is parallel to the camera plane
-        double distanceToObjectPlane = vCameraObject.length() * cos(angle);
+    // compute the distance between the camera and the plane that intersects the
+    // object and which is parallel to the camera plane
+    double distanceToObjectPlane = vCameraObject.length() * cos(angle);
 
-        // cursor is in window points; scale to framebuffer pixels to match width/height
-        double posX = a_posX, posY = a_posY;
-        scaleCursorToPixels(a_window, posX, posY);
+    // cursor is in window points; scale to framebuffer pixels to match width/height
+    double posX = a_posX, posY = a_posY;
+    scaleCursorToPixels(a_window, posX, posY);
 
-        // convert the pixel in mouse space into a relative position in the world
-        double factor = (distanceToObjectPlane * tan(0.5 *
-                        camera->getFieldViewAngleRad())) / (0.5 * height);
-        double posRelX = factor * (posX - (0.5 * width));
-        double posRelY = factor * ((height - posY) - (0.5 * height));
+    // convert the pixel in mouse space into a relative position in the world
+    double factor = (distanceToObjectPlane * tan(0.5 * camera->getFieldViewAngleRad()));
+    factor /= 0.5 * height;
+    double posRelX = factor * (posX - (0.5 * width));
+    double posRelY = factor * ((height - posY) - (0.5 * height));
 
-        // compute the new position in world coordinates
-        cVector3d pos = camera->getLocalPos() +
-        distanceToObjectPlane * camera->getLookVector() +
-        posRelX * camera->getRightVector() +
-        posRelY * camera->getUpVector();
+    // compute the new position in world coordinates
+    cVector3d pos = camera->getLocalPos() +
+    distanceToObjectPlane * camera->getLookVector() +
+    posRelX * camera->getRightVector() +
+    posRelY * camera->getUpVector();
 
-        // compute position of object by taking in account offset
-        cVector3d posObject = pos - selectedAtomOffset;
+    // compute position of object by taking in account offset
+    cVector3d posObject = pos - selectedAtomOffset;
 
-        // apply new position to object
-        selectedAtom->setLocalPos(posObject);
-    }
+    // apply new position to object
+    selectedAtom->setLocalPos(posObject);
+  }
 }
 
+/**
+ * @brief A callback that handles all mouse button input
+ * @param a_window the window being clicked in
+ * @param a_button what mouse button is being pressed
+ * @param a_action what is being done with the mouse button
+ * @param a_mods any modifications being applied to the mouse
+ */
 void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
                          int a_mods) {
     std::lock_guard<std::recursive_mutex> lock(sceneMutex);
