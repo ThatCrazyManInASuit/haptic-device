@@ -856,15 +856,20 @@ void initializeHelpPanel() {
   camera->m_frontLayer->addChild(helpHeader);
 }
 
-vector<int> getHapticInfluencedAtomIndices() {
-  vector<int> influenced;
-  for (int i = 0; i < atoms.size(); i++) {
-    if (atoms[i]->isSelected()) {
-      influenced.push_back(i);
+/**
+ * @brief Retrieves a vector of selected atoms
+ * @return a vector of selected atoms
+ */
+vector<Atom*> getSelectedAtoms() {
+  vector<Atom*> selected;
+  for (Atom* atom : atoms) {
+    if (atom->isSelected()) {
+      selected.push_back(atom);
     }
   }
-  if (influenced.empty() && currentIndex >= 0 && currentIndex < atoms.size()) {
-    influenced.push_back(currentIndex);
+  if (selected.empty() && currentIndex >= 0 && currentIndex < atoms.size()) {
+    selected.push_back(atoms[currentIndex]);
+    atoms[currentIndex]->setSelected(true);
   }
   return influenced;
 }
@@ -886,27 +891,9 @@ cVector3d getNewAtomPosition(Atom *atom, cVector3d &prev_position, const double 
 }
 
 vector<int> activeHapticSelection;
-map<int, cVector3d> activeHapticSelectionOffsets;
 
 bool prevHapticInitialized;
-map<int, cVector3d> hapticInfluenceOffsets;
-vector<int> activeHapticInfluence;
-
-void ensureHapticInfluenceOffsets(const vector<int> &indices,
-                                  const cVector3d &position) {
-  if (indices != activeHapticInfluence) {
-    activeHapticInfluence = indices;
-    hapticInfluenceOffsets.clear();
-    for (int index : indices) {
-      if (atoms[index]->isSelected()) {
-        hapticInfluenceOffsets[index] = atoms[index]->getLocalPos() - position;
-      } else {
-        hapticInfluenceOffsets[index] = cVector3d(0, 0, 0);
-      }
-    }
-  }
-}
-
+std::unordered_map<Atom*, chai3d::cVector3d> selectedOffsets;
 
 cVector3d getAverageAtomGroupForce(const vector<int> &indices) {
   cVector3d force(0, 0, 0);
@@ -919,42 +906,32 @@ cVector3d getAverageAtomGroupForce(const vector<int> &indices) {
   return force / static_cast<double>(indices.size());
 }
 
-cVector3d addHapticForceToAtoms(const vector<int> &indices,
-                                const cVector3d &position,
-                                const double timeInterval) {
-  if (indices.empty()) {
-    return cVector3d(0, 0, 0);
-  }
-  ensureHapticInfluenceOffsets(indices, position);
-  cVector3d averageForceBeforeHaptic = getAverageAtomGroupForce(indices);
-  for (int index : indices) {
-    Atom *atom = atoms[index];
-    if (!atom->isAnchor()) {
-      cVector3d targetPosition = position + hapticInfluenceOffsets[index];
-      cVector3d currentPosition = atom->getLocalPos();
-      cVector3d previousPosition = prevPositions[index];
-      cVector3d velocity = (currentPosition - previousPosition) / timeInterval;
-      cVector3d externalForce =
-          (targetPosition - currentPosition) * K_HAPTIC_SPRING -
-          velocity * K_HAPTIC_DAMPER;
-
-      // Maximum force the haptic device can impart on the current atom in eV/Å
-      const double MAX_HAPTIC_ATOM_FORCE = 100.0; 
-      atom->setForce(atom->getForce() +
-                     clampVectorMagnitude(externalForce, MAX_HAPTIC_ATOM_FORCE));
+void ensureSelectionOffsets(const vector<Atom*> &selectedAtoms, const cVector3d &position) {
+  static vector<Atom*> prevSelectedAtoms;
+  if (selectedAtoms != prevSelectedAtoms) {
+    for (Atom* atom : selectedAtoms) {
+      selectedOffsets[atom] = atom->getLatestPos() - position;
     }
+    prevSelectedAtoms = selectedAtoms;
   }
 
   return averageForceBeforeHaptic;
 }
 
+/**
+ * @brief Gets the average force of the selected group of atoms
+ * @param indices a vector of the indices of selected atoms
+ * @return the average force of the selected group of atoms
+ */
+cVector3d getAverageAtomGroupForce(const vector<Atom*> &selected) {
+  cVector3d force(0, 0, 0);
+  if (selected.empty()) {
+    return force;
   }
-
-void initializePrevPositions() {
-  prevPositions.resize(atoms.size());
-  for (int i = 0; i < atoms.size(); i++) {
-    prevPositions[i] = atoms[i]->getLocalPos();
+  for (Atom* atom : selected) {
+    force += atom->getForce();
   }
+  return force / static_cast<double>(selected.size());
 }
 
 void readButtons(bool buttons[4], bool buttonReset[4]) {
