@@ -189,7 +189,7 @@ Atom::Atom(double radius, int atomicNum) : chai3d::cShapeSphere(radius) {
     refreshMaterial();
 }
 
-bool Atom::isAnchor() { 
+bool Atom::isAnchor() const { 
     return anchor; 
 }
 
@@ -201,7 +201,7 @@ void Atom::setAnchor(bool newAnchor) {
     refreshMaterial();
 }
 
-bool Atom::isCurrent() { 
+bool Atom::isCurrent() const { 
     return current; 
 }
 
@@ -225,7 +225,7 @@ void Atom::setRepeating(bool newRepeat) {
     refreshMaterial();
 }
 
-bool Atom::isSelected() { 
+bool Atom::isSelected() const { 
     return selected; 
 }
 
@@ -234,7 +234,7 @@ void Atom::setSelected(bool newSelected) {
     refreshMaterial();
 }
 
-chai3d::cVector3d Atom::getVelocity() { 
+chai3d::cVector3d Atom::getVelocity() const { 
     return velocity; 
 }
 
@@ -242,7 +242,7 @@ void Atom::setVelocity(chai3d::cVector3d newVel) {
     velocity = newVel; 
 }
 
-chai3d::cVector3d Atom::getForce() { 
+chai3d::cVector3d Atom::getForce() const { 
     return force; 
 }
 
@@ -252,11 +252,11 @@ void Atom::setForce(chai3d::cVector3d newForce) {
     // location as the anchored atom
 }
 
-cVector3d Atom::getPrevForce() {
+cVector3d Atom::getPrevForce() const {
     return prevForce;
 }
 
-cShapeLine* Atom::getVelVector() { 
+cShapeLine* Atom::getVelVector() const { 
     return velVector; 
 }
 
@@ -299,10 +299,10 @@ void Atom::setAtomicNumber(int num) {
     atomicNumber = num;
 }
 
-string Atom::getElement() {
+string Atom::getElement() const {
     return ATOM_STRINGS[atomicNumber];
 }
 
-double Atom::getMass() {
+double Atom::getMass() const {
     return ATOM_WEIGHTS[atomicNumber];
 }

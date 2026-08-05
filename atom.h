@@ -33,7 +33,7 @@ class Atom : public cShapeSphere {
          * @brief Returns if the atom is anchor
          * @return true if the atom is anchored, false otherwise
          */
-        bool isAnchor();
+        bool isAnchor() const;
 
         /**
          * @brief Sets if the atom should be anchored
@@ -45,7 +45,7 @@ class Atom : public cShapeSphere {
          * @brief Returns if the atom is repeating
          * @return true if the atom is repeating, false otherwise
          */
-        bool isRepeating();
+        bool isRepeating() const;
 
         /**
          * @brief Sets if the atom should be repeating
@@ -57,7 +57,7 @@ class Atom : public cShapeSphere {
          * @brief Returns if the atom is current
          * @return true if the atom is current, false otherwise
          */
-        bool isCurrent();
+        bool isCurrent() const;
 
         /**
          * @brief Sets if the atom should be current
@@ -69,7 +69,7 @@ class Atom : public cShapeSphere {
          * @brief Returns if the atom is selected
          * @return true if the atom is selected, false otherwise
          */
-        bool isSelected();
+        bool isSelected() const;
 
         /**
          * @brief Sets if the atom should be selected
@@ -81,7 +81,7 @@ class Atom : public cShapeSphere {
          * @brief Gets the velocity of the atom
          * @return the velocity of the atom in world units. One world unit is 50 Å.
          */
-        cVector3d getVelocity();
+        cVector3d getVelocity() const;
         
         /**
          * @brief Sets the velocity of the atom in world units.
@@ -93,7 +93,7 @@ class Atom : public cShapeSphere {
          * @brief Gets the force applied to the atom
          * @return the force applied to the atom in eV/Å
          */
-        cVector3d getForce();
+        cVector3d getForce() const;
 
         /**
          * @brief Sets the force applied to the atom
@@ -105,13 +105,13 @@ class Atom : public cShapeSphere {
          * @brief Gets the force previous to the current applied force.
          * @return the force previous to the current applied force
          */
-        cVector3d getPrevForce();
+        cVector3d getPrevForce() const;
 
         /**
          * @brief Gets the velocity vector of the atom as a rendered line
          * @return the velocity vector of the atom as a rendered line
          */
-        cShapeLine *getVelVector();
+        cShapeLine *getVelVector() const;
 
         /**
          * @brief Sets the rendered velocity vector of the atom
@@ -146,13 +146,13 @@ class Atom : public cShapeSphere {
          * @brief Gets the chemical symbol of the atom
          * @return the chemical symbol of the atom
          */
-        string getElement();
+        string getElement() const;
 
         /**
          * @brief Gets the mass of the atom
          * @return the atomic mass of the atom in atomic mass units (amu)
          */
-        double getMass();
+        double getMass() const;
 };
 
 #endif  // ATOM_H
