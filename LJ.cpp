@@ -171,6 +171,7 @@ double lastPotentialEnergy = 0.0;
 std::atomic<int> displayedAnchoredCount(0);
 std::recursive_mutex sceneMutex;
 std::atomic<bool> hapticsThreadStarted(false);
+std::atomic<bool> physicsThreadStarted(false);
 int currentIndex = 0;
 std::vector<cLabel *> hotkeyKeys; // vector holding hotkey key labels
 std::vector<cLabel *> hotkeyFunctions; // vector holding function key labels (must be separate for formatting)
