@@ -213,7 +213,7 @@ void Atom::setCurrent(bool newCurrent) {
     refreshMaterial();
 }
 
-bool Atom::isRepeating() { 
+bool Atom::isRepeating() const { 
     return repeating; 
 }
 
