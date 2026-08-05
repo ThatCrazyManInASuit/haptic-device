@@ -43,13 +43,6 @@ Problem:
 - The button-1 scan still has no termination condition.
 - If every candidate atom is anchored, the `while (atoms[simulatedCurrentAtom]->isAnchor())` loop can spin forever.
 
-# Open Issue 4: `u` Hotkey Still Has Assignment Inside `assert`
-
-Problem:
-- `assert(just_unanchored = 5);` still assigns instead of comparing.
-- In debug builds it always passes; in release builds it disappears.
-
-
 # Partially Fixed Item 4: Shutdown Hang
 
 Previous claim:
@@ -58,8 +51,3 @@ Previous claim:
 Current result:
 - `close()` now waits only if the haptics thread actually started, via [LJ.cpp](chai3d-3.3.0/haptic-device/LJ.cpp#L964).
 - In this no-device environment, `q` and `ESC` both produced normal shutdown.
-
-# Fixed Item 5: CTRL Help Toggle Repeat Bug
-
-Previous claim:
-- Holding CTRL could toggle the panel repeatedly due to `GLFW_REPEAT`.
