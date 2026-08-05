@@ -176,6 +176,8 @@ Atom::Atom(double radius, int atomicNum) : chai3d::cShapeSphere(radius) {
     velVector = new chai3d::cShapeLine(chai3d::cVector3d(0, 0, 0), chai3d::cVector3d(0, 0, 0));
     force.zero();
     prevForce.zero();
+    prevPos = getLocalPos();
+
     this->atomicNumber = atomicNum;
 
     std::tuple<GLfloat, GLfloat, GLfloat> colorTuple;
@@ -305,4 +307,30 @@ string Atom::getElement() const {
 
 double Atom::getMass() const {
     return ATOM_WEIGHTS[atomicNumber];
+}
+
+void Atom::addBufferedPos(chai3d::cVector3d pos) {
+    prevPos = getLatestPos();
+    positionBuffer.push(pos);
+}
+
+chai3d::cVector3d Atom::nextPos() {
+    cVector3d result = positionBuffer.front();
+    positionBuffer.pop();
+    return result;
+}
+
+chai3d::cVector3d Atom::getPrevPos() const {
+    return prevPos;
+}
+
+bool Atom::hasNextPos() const {
+    return !positionBuffer.empty();
+}
+
+chai3d::cVector3d Atom::getLatestPos() const {
+    if (positionBuffer.empty()) {
+        return getLocalPos();
+    }
+    return positionBuffer.back();
 }

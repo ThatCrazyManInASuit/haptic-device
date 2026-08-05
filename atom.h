@@ -2,6 +2,7 @@
 #define ATOM_H
 
 #include "chai3d.h"
+#include <queue>
 
 using namespace std;
 using namespace chai3d;
@@ -15,6 +16,8 @@ class Atom : public cShapeSphere {
         cVector3d velocity;
         cVector3d force;
         cVector3d prevForce;
+        cVector3d prevPos;
+        std::queue<chai3d::cVector3d> positionBuffer; // a position buffer so physics calculator calculate ahead
         cShapeLine *velVector; // a rendered line that represents the atom's velocity
         int atomicNumber;
         cColorf color;
@@ -153,6 +156,36 @@ class Atom : public cShapeSphere {
          * @return the atomic mass of the atom in atomic mass units (amu)
          */
         double getMass() const;
+
+        /**
+         * @brief Sets the buffer position of the atom
+         * @param pos the position to set the buffered pos to
+         */
+        void addBufferedPos(chai3d::cVector3d pos);
+
+        /**
+         * @brief Gets the buffer position of the atom
+         * @return the buffered position of the atom
+         */
+        chai3d::cVector3d nextPos();
+
+        /**
+         * @brief Gets if the atom has a next buffered position
+         * @return true if the atom has a next buffered position; false otherwise
+         */
+        bool hasNextPos() const;
+
+        /**
+         * @brief Gets the latest position added to the buffer
+         * @return the latest position added to the buffer
+         */
+        chai3d::cVector3d getLatestPos() const;
+
+        /**
+         * @brief Gets the position most recently taken from the buffer
+         * @return the position most recently taken from the buffer
+         */
+        chai3d::cVector3d getPrevPos() const;
 };
 
 #endif  // ATOM_H

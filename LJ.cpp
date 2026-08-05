@@ -1049,79 +1049,7 @@ cVector3d addHapticForceToAtoms(const vector<int> &indices,
   return averageForceBeforeHaptic;
 }
 
-// Advances the atom simulation by one timestep and returns the haptic force.
-cVector3d stepSimulation(const cVector3d &requestedPosition, const double timeInterval,
-                        const bool hasHapticDevice) {
-  if (prevPositions.size() != atoms.size()) {
-    prevPositions.resize(atoms.size());
   }
-  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  if (atoms.empty()) {
-    return cVector3d(0.0, 0.0, 0.0);
-  }
-
-  Atom *current = atoms[currentIndex];
-  cVector3d position = hasHapticDevice ? requestedPosition : current->getLocalPos();
-  vector<int> hapticInfluencedIndices =
-      hasHapticDevice ? getHapticInfluencedAtomIndices() : vector<int>();
-  bool useHapticInfluence = !hapticInfluencedIndices.empty();
-  if (!useHapticInfluence && !activeHapticSelection.empty()) {
-    activeHapticSelection.clear();
-    activeHapticSelectionOffsets.clear();
-    prevHapticInitialized = false;
-  }
-
-  cVector3d currentPosition(0,0,0);
-  cVector3d hapticForce(0, 0, 0);
-  
-  if (!freezeAtoms.load()) {
-    if (!calculatorPtr) {
-      cerr << "Error: calculatorPtr is null in stepSimulation()" << endl;
-      return cVector3d(0.0, 0.0, 0.0);
-    }
-    const double currentTemp = getSliderVal("Temperature", 1.00);
-    // calculatorPtr->setTemperature(currentTemp);
-
-    vector<vector<double>> forcesVec = calculatorPtr->getFandU(atoms);
-    double potentialEnergy = forcesVec[atoms.size()][0];
-    if (std::isfinite(potentialEnergy)) {
-      lastPotentialEnergy = potentialEnergy;
-    }
-
-    for (int i = 0; i < atoms.size(); i++) {
-      Atom *atom = atoms[i];
-      cVector3d force(forcesVec[i][0], forcesVec[i][1], forcesVec[i][2]);
-      if (!isFiniteVector(force)) {
-        force.zero();
-      }
-      if (i == currentIndex) {
-        force += extraForces;
-        extraForces.zero();
-      }
-      atom->setForce(force);
-    }
-    if (hasHapticDevice && useHapticInfluence) {
-      hapticForce = addHapticForceToAtoms(hapticInfluencedIndices, position, timeInterval);
-    }
-    for (int i = 0; i < atoms.size(); i++) {
-      Atom *atom = atoms[i];
-      if (!atom->isAnchor()) {
-        cVector3d old_position = atom->getLocalPos();
-        cVector3d new_position = getNewAtomPosition(atom, prevPositions[i], timeInterval);
-        prevPositions[i] = old_position;
-        applyBoundaryConditions(old_position, new_position);
-        atom->setLocalPos(new_position);
-      }
-    }
-    displayedPotentialEnergy.store(potentialEnergy);
-  }
-
-  for (int i = 0; i < atoms.size(); i++) {
-    atoms[i]->updateVelVector();
-  }
-
-  return hapticForce;
-}
 
 void initializePrevPositions() {
   prevPositions.resize(atoms.size());
@@ -1328,6 +1256,120 @@ cVector3d positionModeUpdateSelectedGroup(const vector<Atom*> &selected, cVector
 //   }
 //   return getAverageAtomGroupForce(selected);
 // }
+
+/**
+ * @brief Advances the atom simulation by one timestep and returns the haptic force.
+ * TODO: Only force mode has been implemented. The other modes are ready, but the infrastructure
+ *       for moving multiple atoms is not.
+ * @param requestedPosition the position of the haptic device; if no haptic device is present, the
+ *                          haptic device position defaults to where the selected atom's position
+ * @param timeInterval the time interval of the simulation in ASE units
+ * @param hasHapticDevice true if there is a haptic device present; false, otherwise
+ * @return the force to output to the haptic device
+ */
+cVector3d stepSim(const cVector3d &requestedPosition, const double timeInterval,
+                        const bool hasHapticDevice) {
+  if (atoms.empty()) {
+    return cVector3d(0.0, 0.0, 0.0);
+  }
+  Atom *current = atoms[currentIndex];
+  cVector3d position = hasHapticDevice ? requestedPosition : current->getLatestPos();
+  vector<Atom*> selectedAtoms = getSelectedAtoms();
+
+  cVector3d currentPosition(0,0,0);
+  cVector3d hapticForce(0, 0, 0);
+  
+  if (!freezeAtoms.load()) {
+    if (!calculatorPtr) {
+      cerr << "Error: calculatorPtr is null in stepSim()" << endl;
+      return cVector3d(0.0, 0.0, 0.0);
+    }
+    const double currentTemp = getSliderVal("Temperature", 1.00);
+    // calculatorPtr->setTemperature(currentTemp);
+
+    vector<vector<double>> forcesVec = calculatorPtr->getFandU(atoms);
+    double potentialEnergy = forcesVec[atoms.size()][0];
+    if (std::isfinite(potentialEnergy)) {
+      lastPotentialEnergy = potentialEnergy;
+    }
+
+    for (int i = 0; i < atoms.size(); i++) {
+      Atom *atom = atoms[i];
+      cVector3d force(forcesVec[i][0], forcesVec[i][1], forcesVec[i][2]);
+      if (!isFiniteVector(force)) {
+        force.zero();
+      }
+      if (i == currentIndex) {
+        force += extraForces;
+        extraForces.zero();
+      }
+      atom->setForce(force);
+    }
+    
+    switch (hapticMode) {
+      case HapticMode::Position:
+        hapticForce = positionModeUpdateSelectedGroup(selectedAtoms, position, timeInterval);
+        break;
+      case HapticMode::Force:
+        hapticForce = forceModeUpdateSelectedGroup(selectedAtoms, position, timeInterval);
+        break;
+      default:
+        std::cout << "Only force and position mode is implemented!" << std::endl;
+        break;
+    }
+
+    for (Atom *atom : atoms) {
+      if (!atom->isAnchor() && !atom->isSelected()) {
+        cVector3d new_position = getNewAtomPosition(atom, timeInterval);
+        atom->addBufferedPos(applyBoundaryConditions(new_position, aseCell, asePbc));
+      }
+    }
+    displayedPotentialEnergy.store(potentialEnergy);
+  }
+
+  // Skylar note: This currently updates to the LATEST computed forces, not necessarily for the
+  // forces rendered on screen. This is problematic when calculation is faster than the renderer, 
+  // where the force vector will represent that latest forces calculated by the calcuator instead
+  // of the forces of the atoms rendered on screen.
+  for (Atom *atom : atoms) {
+    atom->updateForceVector();
+  }
+  
+  return hapticForce;
+}
+
+/**
+ * @brief Runs the physics loop for calculating atom forces. With UMA calculators, this will run slower than the graphics loop.
+ * TODO: For calculators that are faster than the graphics loop, the physics loop needs to wait for the graphics loop to catch up.
+ */
+void runPhysicsLoop() {
+  std::cout << "Entering loop..." << std::endl;
+  // Converts ASE time units to femtoseconds (fs): 1 ASE time unit is 10.18 fs
+  const double ASE_UNITS_TO_FS = 10.18; 
+  while (simulationRunning) {
+    if (!hapticDevice) {
+      freqCounterHaptics.signal(1);
+      stepSim(cVector3d(0.0, 0.0, 0.0), simulationTimeStep.load() / ASE_UNITS_TO_FS, false);
+    } else {
+      cVector3d hapticPosition;
+      hapticDevice->getPosition(hapticPosition);
+      hapticForce = stepSim(hapticPosition, simulationTimeStep.load() / ASE_UNITS_TO_FS, true);
+    }
+    
+  }
+  std::cout << "Exiting physics loop..." << std::endl;
+}
+
+/**
+ * @brief Initializes a separate thread to run the physics loop on
+ */
+void initializePhysicsThread() {
+  cThread *physicsThread = new cThread();
+  // Need to make new priority constant for physics thread
+  physicsThread->start(runPhysicsLoop, CTHREAD_PRIORITY_GRAPHICS);
+  physicsThreadStarted.store(true);
+  std::cout << "Physics thread started!" << std::endl;
+}
 void updateBonds(cWorld* world) {
   if (!renderBonds.load()) {
     for (auto &entry : bondLines) {
