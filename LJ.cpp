@@ -46,8 +46,7 @@
  where L/R images are rendered above each other
  */
 
-// Converts ASE time units to femtoseconds (fs): 1 ASE time unit is 10.18 fs
-const double ASE_UNITS_TO_FS = 10.18; 
+
 
 bool showDebug = false; // Toggles the extra debug overlay information when true.
 chai3d::cVector3d hapticForce; // The force applied to the haptic device
