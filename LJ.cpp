@@ -53,6 +53,11 @@ bool showDebug = false; // Toggles the extra debug overlay information when true
 chai3d::cVector3d hapticForce; // The force applied to the haptic device
 std::vector<cLabel *> debugAtomLabels; // Stores the labels that annotate atoms with their indices.
 
+// Declare variables needed for calculator constructor (cell, pbc), atoms object
+// (mass, atomic number), and placing of initial atoms (positions)
+std::array<double, 9> aseCell = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+std::array<int, 3> asePbc = {0, 0, 0};
+
 // Stores the initial atom positions so the structure can be reset.
 std::vector<cVector3d> initialPositions;
 
@@ -1619,11 +1624,6 @@ int runApplication(int argc, char *argv[]) {
   } else {
     throw std::runtime_error("First argument must be a haptic mode: \"force\", \"position\", \"standby\"");
   }
-
-  // Declare variables needed for calculator constructor (cell, pbc), atoms object
-  // (mass, atomic number), and placing of initial atoms (positions)
-  std::array<double, 9> aseCell = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-  std::array<int, 3> asePbc = {0, 0, 0};
 
   // PBC argument (argv[5]): "on" forces periodic boundaries on in all three
   // directions, "off" forces them off, and "keep" (or omitting the argument)
