@@ -181,7 +181,6 @@ chai3d::cLabel *screenshotLabel;
 chai3d::cLabel *writeConLabel;
 
 chai3d::cVector3d hapticPosition;
-static std::vector<cVector3d> prevPositions;
 
 chai3d::cVector3d extraForces; // Miscellaneous forces; reset when applied
 
