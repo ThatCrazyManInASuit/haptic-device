@@ -4,6 +4,7 @@
 // which allows using any ASE-compatible physics engine including ML potentials.
 
 #include "potentials.h"
+#include "chai3d.h"
 #include <Python.h>
 
 #include <array>
@@ -147,7 +148,13 @@ namespace {
         std::vector<double> positions;
         positions.reserve(atoms.size() * 3);
         for (const Atom *atom : atoms) {
-            cVector3d pos = atom->getLocalPos();
+            cVector3d pos;
+            if (atom->hasNextPos()) {
+                pos = atom->getLatestPos();
+            } else {
+                pos = atom->getLocalPos();
+            }
+            
             positions.push_back(pos.x() / DIST_SCALE + centerCoords[0]);
             positions.push_back(pos.y() / DIST_SCALE + centerCoords[1]);
             positions.push_back(pos.z() / DIST_SCALE + centerCoords[2]);
@@ -510,7 +517,6 @@ namespace {
         return atomsObject;
     }
 
-
     // Runs an ASE single-point calculation and returns the results as a C++ vector.
     // The return format is: one [fx, fy, fz] entry per atom, followed by a single
     // entry holding the total potential energy.
@@ -526,11 +532,14 @@ namespace {
         if (atomsObject == nullptr) {
             atomsObject = initializeCalculator(atoms, cellMatrix, periodicBoundaryConditions);
         }
+        
+        
         // Push the latest atom positions into the existing Atoms object.
         PyObject *positionsObject = buildPositionsList(flattenPositions(atoms));
         PyObject* result = PyObject_CallMethod(atomsObject, "set_positions", "O", positionsObject);
         Py_XDECREF(result);
 
+        
         // get_forces() triggers the full energy/force evaluation inside ASE.
         // We call get_potential_energy() separately rather than extracting it from
         // the forces result because ASE caches it after the first call, no extra cost.
@@ -539,13 +548,13 @@ namespace {
             Py_DECREF(atomsObject);
             failWithPythonError("Failed to evaluate ASE forces.");
         }
-
+        
+        
         PyObject *energyObject = PyObject_CallMethod(atomsObject, "get_potential_energy", nullptr);
         if (energyObject == nullptr) {
             Py_DECREF(forcesObject);
             failWithPythonError("Failed to evaluate ASE potential energy.");
         }
-
         // Convert the Nx3 force array from Python into a C++ vector of rows.
         PyObject *forceRows =
             PySequence_Fast(forcesObject, "ASE get_forces() result must be a sequence.");
