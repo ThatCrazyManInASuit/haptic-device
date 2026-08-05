@@ -619,6 +619,9 @@ void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::a
         positions[0][static_cast<size_t>(1)],
         positions[0][static_cast<size_t>(2)]
       );
+      centerCoords[0] = centerPos.x();
+      centerCoords[1] = centerPos.y();
+      centerCoords[2] = centerPos.z();
       newAtom->setLocalPos(0.0, 0.0, 0.0); // set first atom at center of view
     } else {
         chai3d::cVector3d atomPos(positions[i][0], positions[i][1], positions[i][2]);
