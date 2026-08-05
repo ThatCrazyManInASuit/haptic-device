@@ -611,8 +611,6 @@ vector<cVector3d> thomsonCords(int k, double radius) {
  * @return a vector of positions that form the shell
  */
 vector<cVector3d> generateShellPositions(int k, double radiusAngstroms) {
-  
-
   if (k <= 0) {
     return vector<cVector3d>();
   }
@@ -972,7 +970,7 @@ vector<Atom*> getSelectedAtoms() {
     selected.push_back(atoms[currentIndex]);
     atoms[currentIndex]->setSelected(true);
   }
-  return influenced;
+  return selected;
 }
 
 /**
@@ -1003,16 +1001,6 @@ vector<int> activeHapticSelection;
 bool prevHapticInitialized;
 std::unordered_map<Atom*, chai3d::cVector3d> selectedOffsets;
 
-cVector3d getAverageAtomGroupForce(const vector<int> &indices) {
-  cVector3d force(0, 0, 0);
-  if (indices.empty()) {
-    return force;
-  }
-  for (int index : indices) {
-    force += atoms[index]->getForce();
-  }
-  return force / static_cast<double>(indices.size());
-}
 
 void ensureSelectionOffsets(const vector<Atom*> &selectedAtoms, const cVector3d &position) {
   static vector<Atom*> prevSelectedAtoms;
@@ -1022,8 +1010,6 @@ void ensureSelectionOffsets(const vector<Atom*> &selectedAtoms, const cVector3d 
     }
     prevSelectedAtoms = selectedAtoms;
   }
-
-  return averageForceBeforeHaptic;
 }
 
 /**
@@ -1059,7 +1045,6 @@ void readButtons(bool buttons[4], bool buttonReset[4]) {
     if (buttons[i]) {
       if (buttonReset[i]) {
         switch (i) {
-          
           case 1:
             switchCurrentAtom();
             break;
@@ -1083,7 +1068,6 @@ void readButtons(bool buttons[4], bool buttonReset[4]) {
  */
 void updateHaptics() {
   // simulation in now running
-  simulationRunning = true;
   simulationFinished = false;
   if (hapticDevice) {
     // open a connection to haptic device
@@ -1101,7 +1085,6 @@ void updateHaptics() {
     bool buttons[4];
     bool buttonReset[4];
     readButtons(buttons, buttonReset);
-    initializePrevPositions();
     while (simulationRunning) {
       
       freqCounterHaptics.signal(1); // signal frequency counter
