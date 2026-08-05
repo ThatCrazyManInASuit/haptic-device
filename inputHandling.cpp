@@ -11,6 +11,12 @@ int just_unanchored = 0;
 bool transparentAtoms = false;
 bool fullscreen = false; // Enables the full-screen window mode when true.
 MouseState mouseState = MOUSE_IDLE; // mouse state
+enum MouseState { 
+  MOUSE_IDLE,
+  MOUSE_SELECTION,
+  MOUSE_BOX_SELECTION
+};
+MouseState mouseState = MOUSE_IDLE;
 Atom *selectedAtom; // a pointer to the selected atom
 
 // offset between the position of the mmouse click on the object and the object reference frame

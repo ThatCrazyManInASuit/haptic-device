@@ -12,7 +12,7 @@
 //------------------------------------------------------------------------------
 // STATES
 //------------------------------------------------------------------------------
-enum MouseState { MOUSE_IDLE, MOUSE_SELECTION, MOUSE_BOX_SELECTION };
+
 enum LocalPotential { LENNARD_JONES, MORSE, ASE };
 enum class HapticMode { Position, Standby, Force };
 
