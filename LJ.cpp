@@ -1823,27 +1823,17 @@ void switchCamera() {
 
 void switchCurrentAtom() {
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  if (atoms.empty()) {
-    return;
+  if (!atoms.empty()) {
+    Atom* current = atoms[currentIndex];
+    int prev_curr_atom = currentIndex;
+    int startAtom = currentIndex;
+    do {
+      currentIndex = (currentIndex + 1) % atoms.size();    
+    } while (atoms[currentIndex]->isAnchor() && startAtom != currentIndex);
+    current->setCurrent(false);
+    current = atoms[currentIndex];
+    current->setCurrent(true);
   }
-  currentIndex %= atoms.size();
-  Atom* current = atoms[currentIndex];
-  int prev_curr_atom = currentIndex;
-  currentIndex = (currentIndex + 1) % atoms.size();  if (currentIndex < 0)
-    currentIndex += atoms.size();
-  int startAtom = currentIndex;
-  while (atoms[currentIndex]->isAnchor()) {
-    currentIndex = (currentIndex + 1) % atoms.size();    if (currentIndex < 0)
-      currentIndex += atoms.size();
-    if (currentIndex == startAtom)
-      break;
-  }
-
-  current = atoms[currentIndex];
-  current->setCurrent(true);
-
-  Atom *prev = atoms[prev_curr_atom];
-  prev->setCurrent(false);
 }
 
 
