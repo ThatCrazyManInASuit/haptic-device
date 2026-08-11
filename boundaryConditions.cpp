@@ -14,8 +14,9 @@ chai3d::cVector3d applyBoundaryConditions(chai3d::cVector3d pos, std::array<doub
   cVector3d initialCoords(centerCoords[0], centerCoords[1], centerCoords[2]);
   pos = pos / DIST_SCALE + initialCoords;
   
-  chai3d::cMatrix3d cell(aseCell[0], aseCell[1], aseCell[2], aseCell[3], aseCell[4], aseCell[5],
-      aseCell[6], aseCell[7], aseCell[8]);
+chai3d::cMatrix3d cell(aseCell[0], aseCell[3], aseCell[6],
+                       aseCell[1], aseCell[4], aseCell[7],
+                       aseCell[2], aseCell[5], aseCell[8]);
   cell.invert();
   cVector3d fracCoords = cell * pos;
   if (asePbc[0]) {

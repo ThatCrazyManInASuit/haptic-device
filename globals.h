@@ -144,6 +144,10 @@ void relCamApplyForceToCurrent(chai3d::cVector3d direction);
 // calculators need constructor arguments only available at launch time
 bool setLivePotential(const std::string &requested);
 
+bool setLiveRepeatX(int value);
+bool setLiveRepeatY(int value);
+bool setLiveRepeatZ(int value);
+
 extern bool showDebug; // debug menu toggle
 extern std::vector<chai3d::cLabel *> debugLabels; // debug labels 
 extern std::vector<chai3d::cLabel *> debugAtomLabels; // atom index labels 

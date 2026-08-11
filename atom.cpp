@@ -155,20 +155,44 @@ const std::tuple<const GLfloat, const GLfloat, const GLfloat> ATOM_COLORS[110] =
  * black, respectively based on if the atom is selected/curent, anchored, or repeating.
  * Otherwise, the atom reverts to its JMol coloring.
  */
-void Atom::refreshMaterial() {
-    m_material->m_emission.set(0.0f, 0.0f, 0.0f, 1.0f);
+void Atom::refreshMaterial(chai3d::cShapeSphere *sphere) {
+    sphere->m_material->m_emission.set(0.0f, 0.0f, 0.0f, 1.0f);
     if (selected || current) {
-        m_material->setRed();
+        sphere->m_material->setRed();
     } else if (anchor) {
-        m_material->setBlue();
+        sphere->m_material->setBlue();
     } else if (repeating) {
-        m_material->setBlack();
+        sphere->m_material->setBlack();
     } else {
-        m_material->setColor(color);
+        sphere->m_material->setColor(color);
     }
 }
 
-Atom::Atom(double radius, int atomicNum) : chai3d::cShapeSphere(radius) {
+void Atom::setPeriodics(int x, int y, int z) {
+    std::cout << "Updating periodics..." << std::endl;
+    for (auto& plane : periodics) {
+        for (auto& row : plane){
+            for (chai3d::cShapeSphere* s : row) {
+                getParent()->removeChild(s);  // detach BEFORE delete
+                delete s;                           // frees GL display list (needs GL ctx)
+            }
+        }
+    }
+    periodics.resize(x);
+    for (int i = 0; i < x; i++) {
+        periodics[i].resize(y);
+        for (int j = 0; j < y; j++) {
+            periodics[i][j].resize(z);
+            for (int k = 0; k < z; k++) {
+                periodics[i][j][k] = copy();
+                refreshMaterial(periodics[i][j][k]);
+                getParent()->addChild(periodics[i][j][k]);
+            }
+        }
+    } 
+}
+
+Atom::Atom(double radius, int atomicNum, chai3d::cWorld *world, cTexture2dPtr texture) : chai3d::cShapeSphere(radius) {
     anchor = false;
     current = false;
     repeating = false;
@@ -178,7 +202,7 @@ Atom::Atom(double radius, int atomicNum) : chai3d::cShapeSphere(radius) {
     prevForce.zero();
     prevPos = getLocalPos();
 
-    this->atomicNumber = atomicNum;
+    atomicNumber = atomicNum;
 
     std::tuple<GLfloat, GLfloat, GLfloat> colorTuple;
     if (atomicNum <= 109) {
@@ -188,7 +212,16 @@ Atom::Atom(double radius, int atomicNum) : chai3d::cShapeSphere(radius) {
     }
 
     color.set(get<0>(colorTuple)/255, get<1>(colorTuple)/255, get<2>(colorTuple)/255);
-    refreshMaterial();
+    setUseCulling(true);
+    refreshMaterial(this);
+    setTexture(texture);
+    m_texture->setSphericalMappingEnabled(true);
+    setUseTexture(true);
+    world->addChild(this);
+}
+
+const std::vector<std::vector<std::vector<chai3d::cShapeSphere*>>>& Atom::getPeriodics() const {
+    return periodics;
 }
 
 bool Atom::isAnchor() const { 
@@ -200,7 +233,7 @@ void Atom::setAnchor(bool newAnchor) {
         current = false;
     }
     anchor = newAnchor;
-    refreshMaterial();
+    refreshMaterial(this);
 }
 
 bool Atom::isCurrent() const { 
@@ -212,7 +245,7 @@ void Atom::setCurrent(bool newCurrent) {
         anchor = false;  // cannot be both anchor and current
     }
     current = newCurrent;
-    refreshMaterial();
+    refreshMaterial(this);
 }
 
 bool Atom::isRepeating() const { 
@@ -224,7 +257,7 @@ void Atom::setRepeating(bool newRepeat) {
         anchor = false; // cannot be both anchor and repeating
     }
     repeating = newRepeat;
-    refreshMaterial();
+    refreshMaterial(this);
 }
 
 bool Atom::isSelected() const { 
@@ -233,7 +266,7 @@ bool Atom::isSelected() const {
 
 void Atom::setSelected(bool newSelected) {
     selected = newSelected;
-    refreshMaterial();
+    refreshMaterial(this);
 }
 
 chai3d::cVector3d Atom::getVelocity() const { 
@@ -267,23 +300,14 @@ void Atom::setVelVector(cShapeLine* newVelVector) {
 }
 
 void Atom::updateForceVector() {
-    // Create a line representing the forces felt on the atom
-    cVector3d newPointNormalized = cAdd(this->getLocalPos(), this->getForce());
-    this->getForce().normalizer(newPointNormalized);
-    this->velVector->m_pointA =
-    cAdd(this->getLocalPos(), newPointNormalized * this->getRadius());
-    this->velVector->m_pointB =
-    cAdd(this->getVelVector()->m_pointA, this->getForce() * .005);
-    this->velVector->setLineWidth(5);
-
-    // Update the color based on the current status of the atom
-    if (current || selected) {
-        this->velVector->m_colorPointA.setRed();
-        this->velVector->m_colorPointB.setRed();
-    } else {
-        this->velVector->m_colorPointA.setBlack();
-        this->velVector->m_colorPointB.setBlack();
-    }
+    cVector3d forceDir = this->getForce();
+    forceDir.normalize();
+    velVector->m_pointA = getLocalPos() + forceDir * getRadius();
+    velVector->m_colorPointA.setBlack();
+    velVector->m_colorPointB.setBlack();
+    const double FORCE_VECTOR_WIDTH = 3.0;
+    velVector->setLineWidth(FORCE_VECTOR_WIDTH);
+    velVector->m_pointB = velVector->m_pointA + getForce() * .005;
 }
 
 void Atom::setColor(cColorf color) {

@@ -14,8 +14,6 @@ Run with:  python -m launcher.main
 # cd .../chai3d/haptic-device
 # python -m launcher.main
 
-# SKYLAR HERE ARE ALL THE IMPORTS --------------------------
-
 
 """
 import sys
@@ -91,7 +89,6 @@ from launcher.ipc_client import IpcClient
 from launcher.paths import default_binary_path
 
 IPC_CONNECT_RETRY_MS = 400
-IPC_CONNECT_MAX_ATTEMPTS = 25  # ~10 seconds before giving up
 STATUS_POLL_MS = 500
 
 # must match MIN/MAX_SIMULATION_TIME_STEP in globals.h
@@ -131,7 +128,6 @@ class MainWindow(QMainWindow):
         self.ipc.statusReceived.connect(self._on_status)
         self.ipc.commandFailed.connect(self._on_command_failed)
 
-        self._connect_attempts = 0
         self._connect_timer = QTimer(self)
         self._connect_timer.setInterval(IPC_CONNECT_RETRY_MS)
         self._connect_timer.timeout.connect(self._try_connect_ipc)
@@ -284,7 +280,7 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_live_group(self) -> QGroupBox:
-        group = QGroupBox("Live controls (while running)")
+        group = QGroupBox("Live controls")
         self.live_group = group
         layout = QVBoxLayout(group)
         layout.setSpacing(10)
@@ -323,7 +319,58 @@ class MainWindow(QMainWindow):
         row2.addWidget(apply_potential)
         layout.addLayout(row2)
 
-        row3 = QHBoxLayout()
+        # Repeat section
+        repeat_group = QGroupBox("Repeat")
+        repeat_layout = QHBoxLayout(repeat_group)
+        repeat_layout.setContentsMargins(10, 10, 10, 10)
+
+        self.repeat_x = QDoubleSpinBox()
+        self.repeat_x.setDecimals(0)
+        self.repeat_x.setMinimum(1)
+        self.repeat_x.setSingleStep(1)
+        self.repeat_x.setValue(1.0)
+        self.repeat_x.setToolTip(
+            "How many times the cell repeats on the x-axis"
+        )
+
+        self.repeat_y = QDoubleSpinBox()
+        self.repeat_y.setDecimals(0)
+        self.repeat_y.setMinimum(1)
+        self.repeat_y.setSingleStep(1)
+        self.repeat_y.setValue(1.0)
+        self.repeat_y.setToolTip(
+            "How many times the cell repeats on the y-axis"
+        )
+
+        self.repeat_z = QDoubleSpinBox()
+        self.repeat_z.setDecimals(0)
+        self.repeat_z.setMinimum(1)
+        self.repeat_z.setSingleStep(1)
+        self.repeat_z.setValue(1.0)
+        self.repeat_z.setToolTip(
+            "How many times the cell repeats on the z-axis"
+        )
+
+        repeat_layout.addWidget(QLabel("X:"))
+        repeat_layout.addWidget(self.repeat_x)
+        repeat_layout.addWidget(QLabel("Y:"))
+        repeat_layout.addWidget(self.repeat_y)
+        repeat_layout.addWidget(QLabel("Z:"))
+        repeat_layout.addWidget(self.repeat_z)
+
+        self.repeat_x.valueChanged.connect(
+            lambda value: self.ipc.send(f"set repeat_x {self.repeat_x.value():.2f}")
+        )
+        self.repeat_y.valueChanged.connect(
+            lambda value: self.ipc.send(f"set repeat_y {self.repeat_y.value():.2f}")
+        )
+        self.repeat_z.valueChanged.connect(
+            lambda value: self.ipc.send(f"set repeat_z {self.repeat_z.value():.2f}")
+        )
+
+        layout.addWidget(repeat_group)
+
+        row4 = QHBoxLayout()
         anchor_all = QPushButton("Anchor all")
         anchor_all.clicked.connect(lambda: self.ipc.send("anchor_all"))
         unanchor_all = QPushButton("Unanchor all")
@@ -333,8 +380,8 @@ class MainWindow(QMainWindow):
         next_camera = QPushButton("Next camera")
         next_camera.clicked.connect(lambda: self.ipc.send("next_camera"))
         for button in (anchor_all, unanchor_all, next_atom, next_camera):
-            row3.addWidget(button)
-        layout.addLayout(row3)
+            row4.addWidget(button)
+        layout.addLayout(row4)
 
         return group
 
@@ -499,8 +546,8 @@ class MainWindow(QMainWindow):
         self.process.start()
         self._set_running_state(True)
 
-        self._connect_attempts = 0
         self._connect_timer.start()
+        self.status_label.setText("Waiting for live-control port (loading calculator...)")
 
     def _stop(self):
         self._connect_timer.stop()
@@ -538,6 +585,9 @@ class MainWindow(QMainWindow):
         self._status_timer.stop()
         self.ipc.disconnect_from_host()
         self._set_running_state(False)
+        self.repeat_x.setValue(1)
+        self.repeat_y.setValue(1)
+        self.repeat_z.setValue(1)
 
     def _on_process_error(self, error):
         self.log_view.appendPlainText(f"[process error: {self.process.errorString()}]")
@@ -549,12 +599,8 @@ class MainWindow(QMainWindow):
         if self.ipc.is_connected():
             self._connect_timer.stop()
             return
-        self._connect_attempts += 1
-        if self._connect_attempts > IPC_CONNECT_MAX_ATTEMPTS:
-            self._connect_timer.stop()
-            self.status_label.setText(
-                "Could not reach the live-control port; live controls disabled for this run."
-            )
+        if self.process.state() == QProcess.ProcessState.NotRunning:
+            self._connect_timer.stop()   # process died; nothing to connect to
             return
         self.ipc.connect_to("127.0.0.1", self.port_spin.value())
 

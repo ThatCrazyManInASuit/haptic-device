@@ -17,20 +17,25 @@ class Atom : public cShapeSphere {
         cVector3d force;
         cVector3d prevForce;
         cVector3d prevPos;
+        std::vector<std::vector<std::vector<chai3d::cShapeSphere*>>> periodics;
         std::queue<chai3d::cVector3d> positionBuffer; // a position buffer so physics calculator calculate ahead
         cShapeLine *velVector; // a rendered line that represents the atom's velocity
         int atomicNumber;
         cColorf color;
 
-        void refreshMaterial();
+        void refreshMaterial(chai3d::cShapeSphere *sphere);
 
     public:
+        void setPeriodics(int x, int y, int z);
+
         /**
          * @brief A constructor for an atom
          * @param radius the radius of the atom. Should be based on the covalent radius
          * @param atomicNum the atomic number of the atom
          */
-        Atom(double radius, int atomicNumber);
+        Atom(double radius, int atomicNumber, chai3d::cWorld *world, cTexture2dPtr texture);
+
+        const std::vector<std::vector<std::vector<chai3d::cShapeSphere*>>>& getPeriodics() const;
 
         /**
          * @brief Returns if the atom is anchor

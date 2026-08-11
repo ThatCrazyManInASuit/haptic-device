@@ -47,7 +47,8 @@
  where L/R images are rendered above each other
  */
 
-
+const int REPEAT_Y = 3;
+const int REPEAT_Z = 1;
 
 bool showDebug = false; // Toggles the extra debug overlay information when true.
 chai3d::cVector3d hapticForce; // The force applied to the haptic device
@@ -101,6 +102,12 @@ std::atomic<double> returnDelaySeconds(2.5);
 // worn devices turn down feedback strength to reduce wear, without touchingctedPoint
 // the underlying simulation's spring/damping constants.
 std::atomic<double> hapticForceScale(1.0);
+
+std::atomic<int> repeatX(1);
+std::atomic<int> repeatY(1);
+std::atomic<int> repeatZ(1);
+
+bool repeatChanged = false;
 
 // atom objects
 std::vector<Atom *> atoms;
@@ -633,15 +640,11 @@ vector<cVector3d> generateShellPositions(int k, double radiusAngstroms) {
  * @return a pointer to the initialized atom
  */
 Atom* initializeAtom(cWorld* world, cTexture2dPtr texture, int atomicNumber, double radius = SPHERE_RADIUS) {
-  Atom *new_atom = new Atom(radius, atomicNumber); // create a atom and define its radius
-  atoms.push_back(new_atom); // store pointer to atom
-  world->addChild(new_atom); // add atom to world
-  world->addChild(new_atom->getVelVector()); // add line to world
-
+  Atom *new_atom = new Atom(radius, atomicNumber, world, texture); // create a atom and define its radius
+  new_atom->setPeriodics(repeatX, repeatY, repeatZ);
   // set graphic properties of atom
-  new_atom->setTexture(texture);
-  new_atom->m_texture->setSphericalMappingEnabled(true);
-  new_atom->setUseTexture(true);
+  atoms.push_back(new_atom); // store pointer to atom
+  world->addChild(new_atom->getVelVector()); // add line to world
   return new_atom;
 }
 
@@ -988,7 +991,6 @@ cVector3d getNewAtomPosition(Atom *atom, const double dT) {
   atom->setVelocity(atom->getVelocity() + .5 * (a0 + a1) * dT);
 
   cVector3d v0 = atom->getVelocity();
-
 
   // force is in eV/Å and getMass() must be amu (see note below). ASE integrates
   // in Å, giving an Å displacement of (F/m)*dt². We render in world units where
@@ -1338,7 +1340,7 @@ void initializePhysicsThread() {
 
 /**
  *  pre: sceneMutex is locked
- *  @brief Recomputes which atom pairs are within BOND_DISTANCE_THRESHOLD of each other and
+ *  @brief Recomputes which atom pairs are within the threshold of each other and
  *         shows/hides/creates the rendered line connecting each bonded pair.
  */
 void updateBonds(cWorld* world) {
@@ -1355,8 +1357,7 @@ void updateBonds(cWorld* world) {
         // Atom pairs closer than this threshold are considered bonded for rendering.
         // TODO: change BOND_DISTANCE_THRESHHOLD to be 1.2 * (R_A + R_B), where R_A and R_B are
         // covalent radii of their atoms. 
-        const double BOND_DISTANCE_THRESHOLD = SPHERE_RADIUS * 5.0;
-        if (distance < BOND_DISTANCE_THRESHOLD) {
+        if (distance < (1.2 * (atoms[i]->getRadius() + atoms[j]->getRadius()))) {
           bondedPairs.insert(make_pair(i, j));
         }
       }
@@ -1584,16 +1585,48 @@ void updateGraphics(cWorld* world) {
   bool showAtoms = renderAtoms.load();
   bool showForceVectors = renderForceVectors.load();
   int anchoredCount = 0;
+
+  // Places periodics atoms
+  
+  chai3d::cVector3d a(aseCell[0], aseCell[1], aseCell[2]);
+  chai3d::cVector3d b(aseCell[3], aseCell[4], aseCell[5]);
+  chai3d::cVector3d c(aseCell[6], aseCell[7], aseCell[8]);
+  a *= DIST_SCALE;
+  b *= DIST_SCALE;
+  c *= DIST_SCALE;
   for (Atom *atom : atoms) {
     atom->setShowEnabled(showAtoms);
     atom->getVelVector()->setShowEnabled(showForceVectors);
     if (atom->isAnchor()) {
       anchoredCount++;
     }
+    if (repeatChanged) {
+      atom->setPeriodics(repeatX, repeatY, repeatZ);
+    }
     if (atom->hasNextPos()) {
-      atom->setLocalPos(atom->nextPos());
+      auto periodics = atom->getPeriodics();
+      cVector3d atomPos = atom->nextPos();
+      atom->setLocalPos(atomPos);
+      int xLength = periodics.size();
+      int yLength = periodics[0].size();
+      int zLength = periodics[0][0].size();
+      int startX = xLength / -2;
+      int startY = yLength / -2;
+      int startZ = zLength / -2;
+      for (int i = startX; i < xLength + startX; i++) {
+        for (int j = startY; j < yLength + startY; j++) {
+          for (int k = startZ; k < zLength + startZ; k++) {
+            cVector3d periodicPos = atomPos + i * a + j * b + k * c;
+            periodics[i - startX][j - startY][k - startZ]->setLocalPos(periodicPos);
+          }
+        }
+      }
     }
   }
+  if (repeatChanged) {
+    repeatChanged = false;
+  }
+
   updateBonds(world);
 
   helpPanel->setLocalPos(width - 550, height - 600);
@@ -1665,16 +1698,45 @@ void relCamApplyForceToCurrent(cVector3d direction) {
   );
 }
 
-//==============================================================================
-/*
- LJ.cpp
- This program simulates LJ clusters of varying sizes using modified
- atom primitives (atom.cpp). All dynamics and collisions are computed in the
- haptics thread.
- TODO: This is a somewhat outdated description, and should be replaced.
- */
-//==============================================================================
+void drawBoundingBox(chai3d::cWorld *world) {
+  chai3d::cVector3d a(aseCell[0], aseCell[1], aseCell[2]);
+  chai3d::cVector3d b(aseCell[3], aseCell[4], aseCell[5]);
+  chai3d::cVector3d c(aseCell[6], aseCell[7], aseCell[8]);
+  chai3d::cVector3d origin(-centerCoords[0], -centerCoords[1], -centerCoords[2]);
+  origin *= DIST_SCALE;
+  a *= DIST_SCALE;
+  b *= DIST_SCALE;
+  c *= DIST_SCALE;
 
+  // 8 corners
+  chai3d::cVector3d o    = origin;
+  chai3d::cVector3d oa   = origin + a;
+  chai3d::cVector3d ob   = origin + b;
+  chai3d::cVector3d oc   = origin + c;
+  chai3d::cVector3d oab  = origin + a + b;
+  chai3d::cVector3d oac  = origin + a + c;
+  chai3d::cVector3d obc  = origin + b + c;
+  chai3d::cVector3d oabc = origin + a + b + c;
+
+  chai3d::cShapeLine *boundingBox[12];
+  boundingBox[0]  = new chai3d::cShapeLine(o,   oa);
+  boundingBox[1]  = new chai3d::cShapeLine(o,   ob);
+  boundingBox[2]  = new chai3d::cShapeLine(o,   oc);
+  boundingBox[3]  = new chai3d::cShapeLine(oa,  oab);
+  boundingBox[4]  = new chai3d::cShapeLine(oa,  oac);
+  boundingBox[5]  = new chai3d::cShapeLine(ob,  oab);
+  boundingBox[6]  = new chai3d::cShapeLine(ob,  obc);
+  boundingBox[7]  = new chai3d::cShapeLine(oc,  oac);
+  boundingBox[8]  = new chai3d::cShapeLine(oc,  obc);
+  boundingBox[9]  = new chai3d::cShapeLine(oab, oabc);
+  boundingBox[10] = new chai3d::cShapeLine(oac, oabc);
+  boundingBox[11] = new chai3d::cShapeLine(obc, oabc);
+  for (chai3d::cShapeLine *line : boundingBox) {
+    line->m_colorPointA.setBlack();
+    line->m_colorPointB.setBlack();
+    world->addChild(line);
+  }
+}
 
 // on Windows, double-clicking the .exe directly (rather than launching it
 // through launcher/main.py, which supplies the required arguments) used to
@@ -1729,6 +1791,7 @@ int runApplication(int argc, char *argv[]) {
   printIntro();
   // PLACE ATOMS
   placeAtoms(world, aseCell, asePbc, argc, argv);
+  drawBoundingBox(world);
   initializeAtomLabels();
   for (int i = 0; i < atoms.size(); i++) {
     initialPositions.push_back(atoms[i]->getLocalPos());
@@ -1885,6 +1948,36 @@ bool setLiveForceScale(double value) {
     return false;
   }
   hapticForceScale.store(value);
+  return true;
+}
+
+bool setLiveRepeatX(int value) {
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  if (!std::isfinite(value) || value <= 0) {
+    return false;
+  }
+  repeatX.store(value);
+  repeatChanged = true;
+  return true;
+}
+
+bool setLiveRepeatY(int value) {
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  if (!std::isfinite(value) || value <= 0) {
+    return false;
+  }
+  repeatY.store(value);
+  repeatChanged = true;
+  return true;
+}
+
+bool setLiveRepeatZ(int value) {
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  if (!std::isfinite(value) || value <= 0) {
+    return false;
+  }
+  repeatZ.store(value);
+  repeatChanged = true;
   return true;
 }
 

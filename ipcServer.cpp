@@ -232,6 +232,40 @@ string handleCommand(const string &line) {
         return "ERR force_scale must be a valid number";
       }
       return "OK";
+    // Repeat code can be condensed
+    } else if (key == "repeat_x") {
+      try {
+        size_t consumed = 0;
+        int parsed =  static_cast<int>(stod(value, &consumed));
+        if (consumed != value.size() || !setLiveRepeatX(parsed)) {
+          return "ERR repeat_x; something went wrong!";
+        }
+      } catch (const exception &) {
+        return "ERR repeat_x must be a valid number";
+      }
+      return "OK";
+    } else if (key == "repeat_y") {
+      try {
+        size_t consumed = 0;
+        int parsed =  static_cast<int>(stod(value, &consumed));
+        if (consumed != value.size() || !setLiveRepeatY(parsed)) {
+          return "ERR repeat_y; something went wrong!";
+        }
+      } catch (const exception &) {
+        return "ERR repeat_y must be a valid number";
+      }
+      return "OK";
+    } else if (key == "repeat_z") {
+      try {
+        size_t consumed = 0;
+        int parsed =  static_cast<int>(stod(value, &consumed));
+        if (consumed != value.size() || !setLiveRepeatZ(parsed)) {
+          return "ERR repeat_z; something went wrong!";
+        }
+      } catch (const exception &) {
+        return "ERR repeat_z must be a valid number";
+      }
+      return "OK";
     }
     return "ERR unknown setting '" + key + "'";
   } else if (command == "anchor_all") {

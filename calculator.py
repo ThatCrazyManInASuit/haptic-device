@@ -159,6 +159,7 @@ class Atoms:
 
     def set_positions(self, positions):
         self.stdin.write(np.array(positions, dtype=np.float32).tobytes())
+        self.stdin.flush()
 
     def get_forces(self):
         size = np.dtype(np.float32).itemsize * self.num_atoms * 3
