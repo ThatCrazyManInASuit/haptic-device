@@ -59,6 +59,7 @@ from pathlib import Path
 
 
 
+import os
 import sys
 
 from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Qt
@@ -535,6 +536,16 @@ class MainWindow(QMainWindow):
         env.insert("HAPTIC_DEVICE_CMD_PORT", str(self.port_spin.value()))
         env.insert("HAPTIC_DEVICE_TIME_STEP", f"{self.time_step_spin.value():.4f}")
         env.insert("HAPTIC_DEVICE_FORCE_SCALE", f"{intensity:.2f}")
+        if os.path.exists("/dev/dxg"):
+            # /dev/dxg is WSL's GPU passthrough device node. Without forcing
+            # the d3d12 gallium driver, Mesa falls back to the llvmpipe
+            # software rasterizer, which turns camera->renderView() into the
+            # dominant per-frame cost (tens of ms for a simple scene).
+            # d3d12's default adapter pick isn't necessarily the discrete
+            # GPU (it picked the Intel iGPU here) -- steer it at the NVIDIA
+            # adapter explicitly.
+            env.insert("GALLIUM_DRIVER", "d3d12")
+            env.insert("MESA_D3D12_DEFAULT_ADAPTER_NAME", "NVIDIA")
         self.process.setProcessEnvironment(env)
 
         self.force_scale_spin.blockSignals(True)
