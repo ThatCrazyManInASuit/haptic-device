@@ -23,6 +23,7 @@ import time
 import threading
 
 USERNAME = "sc73369"
+REMOTE_HOST = "saskatchewan.cm.utexas.edu"
 REMOTE_PYTHON = f"/home/{USERNAME}/uma_env/bin/python3"
 NUM_SHARDS = 1
 
@@ -114,7 +115,7 @@ class Atoms:
 
         print("Preconnecting...", flush=True)
         self.ssh.connect(
-            hostname="saskatchewan.cm.utexas.edu",
+            hostname=REMOTE_HOST,
             username=USERNAME,
             timeout=10,
             banner_timeout=10,
@@ -143,7 +144,7 @@ class Atoms:
         # avoids that entirely while still holding a real allocation.
         # --time bounds worst-case GPU leakage if cleanup below doesn't run.
         _, salloc_out, salloc_err = self.ssh.exec_command(
-            "bash -l -c 'salloc --gres=gpu:1 --time=04:00:00 --no-shell'",
+            f"bash -l -c 'salloc --gres=shard:{NUM_SHARDS} --time=04:00:00 --no-shell'",
             get_pty=False,
         )
         salloc_text = salloc_out.read().decode(errors="replace") + salloc_err.read().decode(errors="replace")
