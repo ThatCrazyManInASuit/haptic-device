@@ -5,7 +5,6 @@
 #include "ipcServer.h"
 #include "potentials.h"
 #include "utility.h"
-#include "boundaryConditions.h"
 #include "slider.h"
 
 #include <GLFW/glfw3.h>
@@ -14,6 +13,7 @@
 
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <deque>
@@ -90,8 +90,7 @@ std::atomic<double> simulationTimeStep(0.001);
 
 // standby/return-to-center haptic tuning parameters used by standbyModeUpdate,
 // changeable live via the IPC "set settling_err/k_return/k_dampen/return_delay"
-// commands (see setLiveSettlingError/setLiveKReturn/setLiveKDampen/setLiveReturnDelay)
-std::atomic<double> settlingError(0.05);
+// commands (see setLiveKReturn/setLiveKDampen/setLiveReturnDelay)
 std::atomic<double> kReturn(25.0);
 std::atomic<double> kDampen(0.0); // 0 = no damping, matching original return behavior
 std::atomic<double> returnDelaySeconds(2.5);
@@ -1137,6 +1136,35 @@ void initializeHapticThread() {
 }
 
 /**
+ * @brief Changes an atom's position to stay within a boundary
+ * @param position the position of the atom
+ * @param aseCell the 3x3 ASE cell matrix, flattened into a 9-element array
+ * @param asePbc the periodic boundary condition to use
+ */
+chai3d::cVector3d applyBoundaryConditions(chai3d::cVector3d pos, std::array<double, 9>& aseCell,
+    std::array<int, 3>& asePbc) {
+  cVector3d initialCoords(centerCoords[0], centerCoords[1], centerCoords[2]);
+  pos = pos / DIST_SCALE + initialCoords;
+  
+chai3d::cMatrix3d cell(aseCell[0], aseCell[3], aseCell[6],
+                       aseCell[1], aseCell[4], aseCell[7],
+                       aseCell[2], aseCell[5], aseCell[8]);
+  cell.invert();
+  cVector3d fracCoords = cell * pos;
+  if (asePbc[0]) {
+    fracCoords.x(fracCoords.x() - std::floor(fracCoords.x()));
+  }
+  if (asePbc[1]) {
+    fracCoords.y(fracCoords.y() - std::floor(fracCoords.y()));
+  }
+  if (asePbc[2]) {
+    fracCoords.z(fracCoords.z() - std::floor(fracCoords.z()));
+  }
+  cell.invert();
+  return DIST_SCALE * (cell * fracCoords - initialCoords);
+}
+
+/**
  * @brief Updates a group of selected atoms using force mode
  * @param selectedIndices list of the indices of selected atoms
  * @param position position of the haptic device
@@ -1893,14 +1921,6 @@ bool setLiveTimeStep(double seconds) {
     return false;
   }
   simulationTimeStep.store(seconds);
-  return true;
-}
-
-bool setLiveSettlingError(double value) {
-  if (!std::isfinite(value) || value < MIN_SETTLING_ERROR || value > MAX_SETTLING_ERROR) {
-    return false;
-  }
-  settlingError.store(value);
   return true;
 }
 
