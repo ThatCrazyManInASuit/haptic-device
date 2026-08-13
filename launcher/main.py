@@ -108,6 +108,8 @@ MAX_RETURN_DELAY_S = 30.0
 MIN_FORCE_SCALE = 0.0
 MAX_FORCE_SCALE = 1.0
 
+MIN_MAX_FORCE_OUTPUT = 0.0
+MAX_MAX_FORCE_OUTPUT = 10.0
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -423,10 +425,19 @@ class MainWindow(QMainWindow):
         self.force_scale_spin.setSingleStep(0.05)
         self.force_scale_spin.setValue(1.0)
         self.force_scale_spin.setToolTip(
-            "Scales all force feedback sent to the device. Turn down while "
-            "running if an old/worn device is feeling too strong."
+            "Ratio for how many Newtons 1 eV per Å renders as."
         )
-        form.addRow("Feedback intensity:", self.force_scale_spin)
+        form.addRow("Force rendering ratio (N : ev/Å):", self.force_scale_spin)
+
+        self.max_force_output = QDoubleSpinBox()
+        self.max_force_output.setDecimals(2)
+        self.max_force_output.setRange(MIN_MAX_FORCE_OUTPUT, MAX_MAX_FORCE_OUTPUT)
+        self.max_force_output.setSingleStep(0.05)
+        self.max_force_output.setValue(8.9)
+        self.max_force_output.setToolTip(
+            "Maximum amount of force the device will render in Newtons."
+        )
+        form.addRow("Max force render (N)", self.max_force_output)
 
         self.k_return_spin = QDoubleSpinBox()
         self.k_return_spin.setDecimals(2)
@@ -458,6 +469,7 @@ class MainWindow(QMainWindow):
 
     def _apply_haptic_tuning(self):
         self.ipc.send(f"set force_scale {self.force_scale_spin.value():.2f}")
+        self.ipc.send(f"set max_force {self.max_force_output.value():.2f}")
         self.ipc.send(f"set k_return {self.k_return_spin.value():.2f}")
         self.ipc.send(f"set k_dampen {self.k_dampen_spin.value():.2f}")
         self.ipc.send(f"set return_delay {self.return_delay_spin.value():.2f}")

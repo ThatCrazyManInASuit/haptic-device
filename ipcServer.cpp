@@ -92,7 +92,6 @@ string buildStatus() {
       << " render_atoms=" << (renderAtoms.load() ? "true" : "false")
       << " render_forces=" << (renderForceVectors.load() ? "true" : "false")
       << " render_bonds=" << (renderBonds.load() ? "true" : "false")
-      << " settling_err=" << settlingError.load()
       << " k_return=" << kReturn.load()
       << " k_dampen=" << kDampen.load()
       << " return_delay=" << returnDelaySeconds.load()
@@ -172,18 +171,6 @@ string handleCommand(const string &line) {
       }
       renderBonds.store(value == "true");
       return "OK";
-    } else if (key == "settling_err") {
-      try {
-        size_t consumed = 0;
-        double parsed = stod(value, &consumed);
-        if (consumed != value.size() || !setLiveSettlingError(parsed)) {
-          return "ERR settling_err must be a number between " +
-                 to_string(MIN_SETTLING_ERROR) + " and " + to_string(MAX_SETTLING_ERROR);
-        }
-      } catch (const exception &) {
-        return "ERR settling_err must be a valid number";
-      }
-      return "OK";
     } else if (key == "k_return") {
       try {
         size_t consumed = 0;
@@ -225,6 +212,19 @@ string handleCommand(const string &line) {
         size_t consumed = 0;
         double parsed = stod(value, &consumed);
         if (consumed != value.size() || !setLiveForceScale(parsed)) {
+          return "ERR force_scale must be a number between " +
+                 to_string(MIN_FORCE_SCALE) + " and " + to_string(MAX_FORCE_SCALE);
+        }
+      } catch (const exception &) {
+        return "ERR force_scale must be a valid number";
+      }
+      return "OK";
+    // Repeat code can be condensed
+    } else if (key == "force_scale") {
+      try {
+        size_t consumed = 0;
+        double parsed = stod(value, &consumed);
+        if (consumed != value.size() || !setLiveMaxOutput(parsed)) {
           return "ERR force_scale must be a number between " +
                  to_string(MIN_FORCE_SCALE) + " and " + to_string(MAX_FORCE_SCALE);
         }

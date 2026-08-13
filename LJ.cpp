@@ -101,6 +101,7 @@ std::atomic<double> returnDelaySeconds(2.5);
 // worn devices turn down feedback strength to reduce wear, without touchingctedPoint
 // the underlying simulation's spring/damping constants.
 std::atomic<double> hapticForceScale(1.0);
+std::atomic<double> maxForceOutput(10.0);
 
 std::atomic<int> repeatX(1);
 std::atomic<int> repeatY(1);
@@ -1099,16 +1100,10 @@ void updateHaptics() {
       
       readButtons(buttons, buttonReset);
 
-      // Hard safety ceiling on the force (N) actually sent to the physical device.
-      // The Novint Falcon haptic device can only output 2 lbf (8.9 N) of force.
-      // Since the haptic device renders forces such that 1 eV/Å = 1 N, using the device's full
-      // 8.9 N capacity should be rare, if the simulation is correct.
-      const double MAX_HAPTIC_OUTPUT_FORCE = 100.0;
-
       // scale by the user-configurable feedback intensity, then apply a hard safety ceiling
       // regardless of that scale - so a spike (e.g. two atoms overlapping) can never slam the
       // device at full force even if intensity is set to 100%
-      hapticDevice->setForce(clampVectorMagnitude(hapticForce * hapticForceScale.load(), MAX_HAPTIC_OUTPUT_FORCE));
+      hapticDevice->setForce(clampVectorMagnitude(hapticForce * hapticForceScale.load(), maxForceOutput.load()));
     }
     // close  connection to haptic device
     hapticDevice->close();
@@ -1953,6 +1948,14 @@ bool setLiveForceScale(double value) {
     return false;
   }
   hapticForceScale.store(value);
+  return true;
+}
+
+bool setLiveMaxOutput(double value) {
+  if (!std::isfinite(value) || value < MIN_MAX_FORCE_OUTPUT || value < MAX_MAX_FORCE_OUTPUT) {
+    return false;
+  }
+  maxForceOutput.store(value);
   return true;
 }
 

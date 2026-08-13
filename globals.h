@@ -99,8 +99,7 @@ extern bool setLiveTimeStep(double seconds);
 
 // standby/return-to-center haptic tuning parameters, used by standbyModeUpdate
 // in LJ.cpp and changeable at runtime via the IPC
-// "set settling_err/k_return/k_dampen/return_delay" commands
-extern std::atomic<double> settlingError;
+// "set k_return/k_dampen/return_delay" commands
 extern std::atomic<double> kReturn;
 extern std::atomic<double> kDampen;
 extern std::atomic<double> returnDelaySeconds;
@@ -117,7 +116,6 @@ constexpr double MAX_RETURN_DELAY_SECONDS = 30.0;
 
 // validated setters for the standby/return tuning parameters, same
 // fail-closed contract as setLiveTimeStep
-bool setLiveSettlingError(double value);
 bool setLiveKReturn(double value);
 bool setLiveKDampen(double value);
 bool setLiveReturnDelay(double value);
@@ -132,8 +130,11 @@ extern std::atomic<double> hapticForceScale;
 constexpr double MIN_FORCE_SCALE = 0.0;
 constexpr double MAX_FORCE_SCALE = 1.0;
 
+constexpr double MIN_MAX_FORCE_OUTPUT = 0.0;
+constexpr double MAX_MAX_FORCE_OUTPUT = 10.0;
 // validated setter for hapticForceScale, same fail-closed contract as setLiveTimeStep
 bool setLiveForceScale(double value);
+bool setLiveMaxOutput(double value);
 
 // advance to the next non-anchored atom / next preset camera angle
 void switchCurrentAtom();
@@ -154,6 +155,7 @@ bool setLivePotential(const std::string &requested);
 /**
  * @brief Sets how much to repeat in the x-axis from the live controls
  * @param value How many times to repeat in the x-axis
+ * @return true if the value is valid
  */
 bool setLiveRepeatX(int value);
 /**
