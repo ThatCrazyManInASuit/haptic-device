@@ -1205,8 +1205,6 @@ cVector3d positionModeUpdateSelectedGroup(const vector<Atom*> &selected, cVector
 
 /**
  * @brief Advances the atom simulation by one timestep and returns the haptic force.
- * TODO: Only force mode has been implemented. The other modes are ready, but the infrastructure
- *       for moving multiple atoms is not.
  * @param requestedPosition the position of the haptic device; if no haptic device is present, the
  *                          haptic device position defaults to where the selected atom's position
  * @param timeInterval the time interval of the simulation in ASE units
@@ -1677,6 +1675,10 @@ void relCamApplyForceToCurrent(cVector3d direction) {
   );
 }
 
+/**
+ * @brief Draws the bounding box of the ASE cell
+ * @param world the world to add the bounding box to
+ */
 void drawBoundingBox(chai3d::cWorld *world) {
   chai3d::cVector3d a(aseCell[0], aseCell[1], aseCell[2]);
   chai3d::cVector3d b(aseCell[3], aseCell[4], aseCell[5]);
@@ -1717,12 +1719,12 @@ void drawBoundingBox(chai3d::cWorld *world) {
   }
 }
 
-// on Windows, double-clicking the .exe directly (rather than launching it
-// through launcher/main.py, which supplies the required arguments) used to
-// crash instantly: the console window this project builds as opens, an
-// unhandled exception fires (e.g. missing haptic mode argument) and
-// std::terminate closes the window again before anyone can read why. main()
-// below catches that and keeps the window open with the error instead.
+/**
+ * @brief Runs the simulation
+ * @param argc How many arguments there are
+ * @param argv Argument vector that holds the arguments
+ * @return the exit code
+ */
 int runApplication(int argc, char *argv[]) {
   srand(time(nullptr)); // initialize random seed
   
@@ -1857,6 +1859,7 @@ int main(int argc, char *argv[]) {
   }
 }
 
+
 bool setLivePotential(const std::string &requested) {
   string potential = requested;
   for (char &c : potential) {
@@ -1886,6 +1889,9 @@ bool setLivePotential(const std::string &requested) {
 }
 
 bool setLiveTimeStep(double seconds) {
+  if (seconds < MIN_SIMULATION_TIME_STEP || seconds > MAX_SIMULATION_TIME_STEP) {
+    return false;
+  }
   simulationTimeStep.store(seconds);
   return true;
 }

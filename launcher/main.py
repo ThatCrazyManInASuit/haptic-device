@@ -97,8 +97,6 @@ MIN_TIME_STEP_S = 0.0
 MAX_TIME_STEP_S = 2.0
 
 # must match the MIN_/MAX_ bounds for these in globals.h
-MIN_SETTLING_ERROR = 0.001
-MAX_SETTLING_ERROR = 1.0
 MIN_K_RETURN = 0.0
 MAX_K_RETURN = 500.0
 MIN_K_DAMPEN = 0.0
@@ -430,13 +428,6 @@ class MainWindow(QMainWindow):
         )
         form.addRow("Feedback intensity:", self.force_scale_spin)
 
-        self.settling_err_spin = QDoubleSpinBox()
-        self.settling_err_spin.setDecimals(4)
-        self.settling_err_spin.setRange(MIN_SETTLING_ERROR, MAX_SETTLING_ERROR)
-        self.settling_err_spin.setSingleStep(0.001)
-        self.settling_err_spin.setValue(0.05)
-        form.addRow("Settling error:", self.settling_err_spin)
-
         self.k_return_spin = QDoubleSpinBox()
         self.k_return_spin.setDecimals(2)
         self.k_return_spin.setRange(MIN_K_RETURN, MAX_K_RETURN)
@@ -467,7 +458,6 @@ class MainWindow(QMainWindow):
 
     def _apply_haptic_tuning(self):
         self.ipc.send(f"set force_scale {self.force_scale_spin.value():.2f}")
-        self.ipc.send(f"set settling_err {self.settling_err_spin.value():.4f}")
         self.ipc.send(f"set k_return {self.k_return_spin.value():.2f}")
         self.ipc.send(f"set k_dampen {self.k_dampen_spin.value():.2f}")
         self.ipc.send(f"set return_delay {self.return_delay_spin.value():.2f}")
@@ -654,7 +644,6 @@ class MainWindow(QMainWindow):
         # don't fight the user while they're actively editing one of these
         for spin, key in (
             (self.force_scale_spin, "force_scale"),
-            (self.settling_err_spin, "settling_err"),
             (self.k_return_spin, "k_return"),
             (self.k_dampen_spin, "k_dampen"),
             (self.return_delay_spin, "return_delay"),

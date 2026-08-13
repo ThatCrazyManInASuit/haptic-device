@@ -88,10 +88,6 @@ extern std::atomic<double> simulationTimeStep;
 constexpr double MIN_SIMULATION_TIME_STEP = 0.0;
 constexpr double MAX_SIMULATION_TIME_STEP = 2.0;
 
-// validates and applies a new simulation time step; returns false (leaving
-// the current value untouched) if the value is non-finite or out of
-// [MIN_SIMULATION_TIME_STEP, MAX_SIMULATION_TIME_STEP]
-bool setLiveTimeStep(double seconds);
 
 // standby/return-to-center haptic tuning parameters, used by standbyModeUpdate
 // in LJ.cpp and changeable at runtime via the IPC
