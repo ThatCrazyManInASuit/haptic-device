@@ -88,6 +88,14 @@ extern std::atomic<double> simulationTimeStep;
 constexpr double MIN_SIMULATION_TIME_STEP = 0.0;
 constexpr double MAX_SIMULATION_TIME_STEP = 2.0;
 
+/**
+ * @brief Sets the timestep
+ * @param seconds How many femtoseconds the simulation runs at
+ * @return true if the timestep is valid and setting the timestep succeeds, false otherwise.
+ *         The timestep is valid if "seconds" is within the interval
+ *         [MIN_SIMULATION_TIME_STEP, MAX_SIMULATION_TIME_STEP]
+ */
+extern bool setLiveTimeStep(double seconds);
 
 // standby/return-to-center haptic tuning parameters, used by standbyModeUpdate
 // in LJ.cpp and changeable at runtime via the IPC
@@ -135,13 +143,28 @@ void switchCamera();
 // right/up/look axes; each argument is -1, 0, or 1
 void relCamApplyForceToCurrent(chai3d::cVector3d direction);
 
-// swap the live calculator between "lj" and "morse"; returns false (and leaves
-// the current calculator untouched) for any other request, since ASE
-// calculators need constructor arguments only available at launch time
+/**
+ * @brief Sets the potential from the live controls
+ * @param requested The requested potential to use. Only lj and morse work, for ASE needs
+ *                  constructor arguments that are only available at launch time
+ * @return Whether setting the potential succeeded or not
+ */
 bool setLivePotential(const std::string &requested);
 
+/**
+ * @brief Sets how much to repeat in the x-axis from the live controls
+ * @param value How many times to repeat in the x-axis
+ */
 bool setLiveRepeatX(int value);
+/**
+ * @brief Sets how much to repeat in the y-axis from the live controls
+ * @param value How many times to repeat in the y-axis
+ */
 bool setLiveRepeatY(int value);
+/**
+ * @brief Sets how much to repeat in the z-axis from the live controls
+ * @param value How many times to repeat in the z-axis
+ */
 bool setLiveRepeatZ(int value);
 
 extern bool showDebug; // debug menu toggle
