@@ -169,7 +169,6 @@ void Atom::refreshMaterial(chai3d::cShapeSphere *sphere) {
 }
 
 void Atom::setPeriodics(int x, int y, int z) {
-    std::cout << "Updating periodics..." << std::endl;
     for (auto& plane : periodics) {
         for (auto& row : plane){
             for (chai3d::cShapeSphere* s : row) {
