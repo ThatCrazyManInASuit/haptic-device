@@ -226,7 +226,7 @@ string handleCommand(const string &line) {
         double parsed = stod(value, &consumed);
         if (consumed != value.size() || !setLiveMaxOutput(parsed)) {
           return "ERR force_scale must be a number between " +
-                 to_string(MIN_FORCE_SCALE) + " and " + to_string(MAX_FORCE_SCALE);
+                 to_string(MIN_MAX_FORCE_OUTPUT) + " and " + to_string(MAX_MAX_FORCE_OUTPUT);
         }
       } catch (const exception &) {
         return "ERR force_scale must be a valid number";

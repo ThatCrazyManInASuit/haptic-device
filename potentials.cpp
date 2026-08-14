@@ -1027,23 +1027,6 @@ aseCalculator::aseCalculator(const std::string &cName,
     parseCalculatorSpec(cName, calculatorModule, calculatorClass, calculatorKwargs);
 }
 
-void aseCalculator::setTemperature(double temperatureValue) {
-    temperature = temperatureValue;
-    if (calcObject != nullptr) {
-        ensurePythonInitialized();
-        PyGILState_STATE gilState = PyGILState_Ensure();
-        PyObject *temperatureObject = PyFloat_FromDouble(temperature);
-        if (temperatureObject == nullptr) {
-            PyGILState_Release(gilState);
-            failWithPythonError("Failed to convert ASE temperature value.");
-        }
-        int setResult = PyObject_SetAttrString(calcObject, "temperature", temperatureObject);
-
-        Py_DECREF(temperatureObject);
-        PyGILState_Release(gilState);
-    }
-}
-
 std::vector<std::vector<double>> aseCalculator::getFandU(std::vector<Atom *> &atoms) {
     return runAseCalculation(atoms, calculatorModule, calculatorClass, calculatorKwargs, cell, pbc);
 }

@@ -21,6 +21,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <random>
 #include <set>
 #include <sstream>
 #include <string>
@@ -69,6 +70,18 @@ const double SPHERE_RADIUS = 0.37 * DIST_SCALE;
 // Haptic spring-damper constants used to reduce unwanted oscillations.
 const double K_HAPTIC_SPRING = 100.0;
 const double K_HAPTIC_DAMPER = 5.0;    // Damping for force modendLines
+
+// Boltzmann constant in eV/K -- matches the eV/Å/amu unit system already used
+// for forces/masses/positions elsewhere (ASE's unit system), so no extra
+// conversion factor is needed when computing thermal energies below.
+const double K_BOLTZMANN_EV = 8.617333262e-5;
+
+// Langevin thermostat friction coefficient, in inverse ASE time units. Only
+// engages when the Temperature slider is above 0, so default (0 K) behavior
+// is unchanged plain Newtonian dynamics. Chosen as light coupling so the
+// thermostat nudges the system toward the target temperature without
+// fighting haptic interaction or destabilizing the integrator.
+const double LANGEVIN_FRICTION = 0.01;
 
 //------------------------------------------------------------------------------
 // DECLARED VARIABLES
@@ -861,7 +874,7 @@ void initializeLabels() {
   initializePotentialLabel();
 
   temperatureLabel->setLocalPos(0, 90, 0);
-  temperatureLabel->setText("Temperature: 0.00000 kT");
+  temperatureLabel->setText("Temperature: 0.00000 K");
 
   camera_pos->setLocalPos(0, 30, 0);
   updateCameraLabel(camera_pos, camera);
@@ -974,6 +987,33 @@ vector<Atom*> getSelectedAtoms() {
     atoms[currentIndex]->setSelected(true);
   }
   return selected;
+}
+
+// Shared RNG for the Langevin thermostat's random force. Physics-thread-only
+// (stepSim runs on a single dedicated thread), so no locking is needed.
+std::mt19937 thermostatRng(std::random_device{}());
+std::normal_distribution<double> thermostatGaussian(0.0, 1.0);
+
+/**
+ * @brief Computes a Langevin thermostat contribution (friction + random
+ * kick) for one atom, meant to be added directly to its conservative force
+ * from the calculator.
+ *
+ * @param atom the atom to compute the thermostat force for
+ * @param targetTemperature target temperature in Kelvin
+ * @param dT the simulation time step, in ASE time units
+ * @return the friction + random force to add to the atom's conservative force
+ */
+cVector3d langevinThermostatForce(Atom *atom, double targetTemperature, double dT) {
+  const double mass = atom->getMass();
+  cVector3d frictionForce = atom->getVelocity() / DIST_SCALE * (-LANGEVIN_FRICTION * mass);
+
+  const double sigma = std::sqrt(2.0 * LANGEVIN_FRICTION * mass * K_BOLTZMANN_EV *
+                                  targetTemperature / dT);
+  cVector3d randomForce(thermostatGaussian(thermostatRng), thermostatGaussian(thermostatRng),
+                        thermostatGaussian(thermostatRng));
+
+  return frictionForce + randomForce * sigma;
 }
 
 /**
@@ -1251,8 +1291,7 @@ cVector3d stepSim(const cVector3d &requestedPosition, const double timeInterval,
       cerr << "Error: calculatorPtr is null in stepSim()" << endl;
       return cVector3d(0.0, 0.0, 0.0);
     }
-    const double currentTemp = getSliderVal("Temperature", 1.00);
-    // calculatorPtr->setTemperature(currentTemp);
+    const double targetTemperature = getSliderVal("Temperature", 0.0);
 
     vector<vector<double>> forcesVec = calculatorPtr->getFandU(atoms);
     double potentialEnergy = forcesVec[atoms.size()][0];
@@ -1270,9 +1309,16 @@ cVector3d stepSim(const cVector3d &requestedPosition, const double timeInterval,
         force += extraForces;
         extraForces.zero();
       }
+      // Anchored/selected atoms aren't advanced by the thermostatted
+      // integrator below (anchors don't move; selected atoms are haptically
+      // driven), so thermostatting them would be wasted work at best and
+      // fight the user's haptic control at worst.
+      if (targetTemperature > 0.0 && !atom->isAnchor() && !atom->isSelected()) {
+        force += langevinThermostatForce(atom, targetTemperature, timeInterval);
+      }
       atom->setForce(force);
     }
-    
+
     switch (hapticMode) {
       case HapticMode::Position:
         hapticForce = positionModeUpdateSelectedGroup(selectedAtoms, position, timeInterval);
@@ -1285,12 +1331,23 @@ cVector3d stepSim(const cVector3d &requestedPosition, const double timeInterval,
         break;
     }
 
+    // Measured temperature via equipartition over the same thermostatted
+    // atom set (3 translational DOF each): (3N/2) kB T = sum of 1/2 m v^2.
+    double kineticEnergy = 0.0;
+    int thermostattedDof = 0;
     for (Atom *atom : atoms) {
       if (!atom->isAnchor() && !atom->isSelected()) {
         cVector3d new_position = getNewAtomPosition(atom, timeInterval);
         atom->addBufferedPos(applyBoundaryConditions(new_position, aseCell, asePbc));
+        // Same world-unit-to-physical conversion as langevinThermostatForce.
+        cVector3d v = atom->getVelocity() / DIST_SCALE;
+        kineticEnergy += 0.5 * atom->getMass() * v.dot(v);
+        thermostattedDof += 3;
       }
     }
+    displayedTemperature.store(thermostattedDof > 0
+                                    ? 2.0 * kineticEnergy / (thermostattedDof * K_BOLTZMANN_EV)
+                                    : 0.0);
     displayedPotentialEnergy.store(potentialEnergy);
   }
 
@@ -1547,8 +1604,10 @@ void updateLabels() {
   updateCameraLabel(camera_pos, camera);
   camera_pos->setShowEnabled(showDebug);
 
-  displayedTemperature.store(getSliderVal("Temperature", 1.0));
-  temperatureLabel->setText("Temperature: " + cStr(displayedTemperature.load(), 5) + " kT");
+  // displayedTemperature is computed on the physics thread (stepSim) from the
+  // atoms' actual kinetic energy -- this just displays that measured value,
+  // it doesn't re-derive it from the slider's target setpoint.
+  temperatureLabel->setText("Temperature: " + cStr(displayedTemperature.load(), 5) + " K");
 
   // TODO: figure out a way to use a bool instead of a string
   string trueFalse = freezeAtoms.load() ? "true" : "false";
