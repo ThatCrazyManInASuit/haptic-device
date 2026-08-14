@@ -249,7 +249,7 @@ GLFWwindow* initializeSliderWindow(GLFWwindow* mainWindow) {
     glfwSetKeyCallback(sliderWindow, sliderWindowKeyCallback);
     
     sliders.push_back(Slider("Time Step", "fs", 0.0, 2.0, 1.0, 3));
-    sliders.push_back(Slider("Temperature", "K", 0.0, 20000.0, 0.0, 2));
+    sliders.push_back(Slider("Temperature", "K", 0.0, 1000.0, 0.0, 2));
     glfwSetWindowTitle(sliderWindow, "Controls");
     return sliderWindow;
 }
