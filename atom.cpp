@@ -334,7 +334,11 @@ void Atom::setColor(chai3d::cColorf color) {
     }
 }
 
-int Atom::getAtomicNumber() const { 
+chai3d::cColorf Atom::getColor() const {
+    return color;
+}
+
+int Atom::getAtomicNumber() const {
     return atomicNumber;
 }
 
