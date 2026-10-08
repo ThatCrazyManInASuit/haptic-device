@@ -141,6 +141,13 @@ class Atom : public chai3d::cShapeSphere {
         void setColor(chai3d::cColorf color);
 
         /**
+         * @brief Gets the element color of the atom, ignoring any highlight (current, anchored,
+         *        or repeating) currently painted over it
+         * @return the element color of the atom
+         */
+        chai3d::cColorf getColor() const;
+
+        /**
          * @brief Gets the atomic number of the atom
          * @return the atomic number of the atom
          */
