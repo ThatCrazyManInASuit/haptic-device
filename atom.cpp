@@ -238,6 +238,7 @@ const std::vector<std::vector<std::vector<chai3d::cShapeSphere*>>>& Atom::getPer
 }
 
 std::set<Atom*>& Atom::getBondedAtoms() {
+std::set<int>& Atom::getBondedAtoms() {
     return bondedAtoms;
 }
 

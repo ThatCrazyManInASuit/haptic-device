@@ -211,7 +211,7 @@ class Atom : public chai3d::cShapeSphere {
          * @brief Returns the set of atoms bonded to the current atom, editable
          * @return the set of atoms bonded to the current atom, editable
          */
-        std::set<Atom*>& getBondedAtoms();
+        std::set<int>& getBondedAtoms();
 };
 
 #endif  // ATOM_H
