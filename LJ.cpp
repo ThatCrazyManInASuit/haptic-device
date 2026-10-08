@@ -124,6 +124,9 @@ bool repeatChanged = false;
 
 // atom objects
 std::vector<Atom *> atoms;
+std::vector<Atom *> ghostAtoms;
+chai3d::cWorld *simulationWorld = nullptr;
+chai3d::cTexture2dPtr atomTexture;
 
 // lines drawn between bonded atom pairs, keyed by sorted (atom index) pairs.
 // Lines are created lazily and hidden (not removed) when a pair un-bonds so
@@ -737,10 +740,10 @@ void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell,
  * @param argv array of characters that make up the arguments
  */
 void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::array<int, 3>& asePbc, int argc, char *argv[]) {
-  chai3d::cTexture2dPtr texture = chai3d::cTexture2d::create(); // create texture
+    atomTexture = chai3d::cTexture2d::create(); // create texture
   // load texture file
   bool fileload = loadChaiResource([&](const char *path)
-      { return texture->loadFromFile(path); },
+      { return atomTexture->loadFromFile(path); },
       "resources/images/grayball.jpg");
   if (!fileload){
     close();
@@ -761,7 +764,7 @@ void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::arra
     std::vector<chai3d::cVector3d> positions = generateShellPositions(k, shellRadiusAngstroms);
     for (int i = 0; i < numSpheres; i++) {
       // initialize atom with texture and atomic number of 1 (hydrogen)
-      Atom *new_atom = initializeAtom(world, texture, 1, SPHERE_RADIUS); 
+      Atom *new_atom = initializeAtom(world, atomTexture, 1, SPHERE_RADIUS);
       if (i == 0) {
         new_atom->setCurrent(true); // set the first atom to the current
       } else {
@@ -769,7 +772,7 @@ void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::arra
       }
     }
   } else // read in specified file
-    placeAtomsAse(world, aseCell, asePbc, texture, argc, argv);
+    placeAtomsAse(world, aseCell, asePbc, atomTexture, argc, argv);
 
   // Done reading any sort of info.
   for (int i = 0; i < atoms.size(); i++) {
@@ -905,6 +908,7 @@ void initializeHotkeyLabels() {
   addHotkeyLabel("d", "toggle debug info");
   addHotkeyLabel("t", "reset atom structure");
   addHotkeyLabel("CTRL", "toggle help panel");
+  addHotkeyLabel("m", "toggle projection mode");
 }
 
 /**
@@ -1266,6 +1270,9 @@ chai3d::cVector3d positionModeUpdateSelectedGroup(const std::vector<Atom*> &sele
   return getAverageAtomGroupForce(selected);
 }
 
+void makeGhostAtoms(float transparency, const std::vector<Atom*> &selectedAtoms);
+void deleteGhostAtoms();
+
 /**
  * @brief Advances the atom simulation by one timestep and returns the haptic force.
  * @param requestedPosition the position of the haptic device; if no haptic device is present, the
@@ -1282,6 +1289,13 @@ chai3d::cVector3d stepSim(const chai3d::cVector3d &requestedPosition, const doub
   Atom *current = atoms[currentIndex];
   chai3d::cVector3d position = hasHapticDevice ? requestedPosition : current->getLatestPos();
   std::vector<Atom*> selectedAtoms = getSelectedAtoms();
+  if (hapticMode.load() == HapticMode::Projection && ghostAtoms.empty()) {
+    makeGhostAtoms(0.45f, selectedAtoms);
+  }
+
+  if(hapticMode.load() != HapticMode::Projection && !ghostAtoms.empty()) {
+    deleteGhostAtoms();
+  }
 
   chai3d::cVector3d currentPosition(0,0,0);
   chai3d::cVector3d hapticForce(0, 0, 0);
@@ -1349,6 +1363,15 @@ chai3d::cVector3d stepSim(const chai3d::cVector3d &requestedPosition, const doub
                                     ? 2.0 * kineticEnergy / (thermostattedDof * K_BOLTZMANN_EV)
                                     : 0.0);
     displayedPotentialEnergy.store(potentialEnergy);
+  } else {
+    switch (hapticMode) {
+      case HapticMode::Projection:
+        hapticForce = forceModeUpdateSelectedGroup(ghostAtoms, position, timeInterval);
+        break;
+
+      default:
+        break;
+    }
   }
 
   // Skylar note: This currently updates to the LATEST computed forces, not necessarily for the
@@ -1360,6 +1383,42 @@ chai3d::cVector3d stepSim(const chai3d::cVector3d &requestedPosition, const doub
   }
   
   return hapticForce;
+}
+
+void makeGhostAtoms(float transparency, const std::vector<Atom*> &selectedAtoms) {
+  if (!simulationWorld || !atomTexture) {
+    return;
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  for (Atom *atom : selectedAtoms) {
+    Atom *ghost = new Atom(atom->getRadius(), atom->getAtomicNumber(), simulationWorld, atomTexture);
+    ghost->setLocalPos(atom->getLatestPos());
+    ghost->setTransparencyLevel(transparency);
+    simulationWorld->addChild(ghost->getVelVector());
+    ghostAtoms.push_back(ghost);
+  }
+}
+
+void deleteGhostAtoms() {
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  for (Atom *ghost : ghostAtoms) {
+    if (!ghost) {
+      continue;
+    }
+
+    selectedOffsets.erase(ghost);
+    posModeAttractions.erase(ghost);
+
+    chai3d::cShapeLine *forceVector = ghost->getVelVector();
+    if (simulationWorld) {
+      simulationWorld->removeChild(forceVector);
+      simulationWorld->removeChild(ghost);
+    }
+    delete forceVector;
+    delete ghost;
+  }
+  ghostAtoms.clear();
 }
 
 /**
@@ -1689,6 +1748,12 @@ void updateGraphics(chai3d::cWorld* world) {
       }
     }
   }
+  for (Atom *ghost : ghostAtoms) {
+    if (ghost->hasNextPos()) {
+      ghost->setLocalPos(ghost->nextPos());
+    }
+    ghost->updateForceVector();
+  }
   if (repeatChanged) {
     repeatChanged = false;
   }
@@ -1827,6 +1892,7 @@ int runApplication(int argc, char *argv[]) {
 
   // WORLD - CAMERA - LIGHTING
   chai3d::cWorld* world = initializeWorld();
+  simulationWorld = world;
   initializeCamera(world, STEREO_MODE);
   initializeLight(world);
   

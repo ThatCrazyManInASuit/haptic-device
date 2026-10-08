@@ -18,7 +18,8 @@ Run with:  python -m launcher.main
 """
 import sys
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Qt
+from PyQt6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore importQProcess, QProcessEnvironment, QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -61,6 +62,9 @@ from pathlib import Path
 
 import os
 import sys
+
+#ADDED LINES OVER HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+from PyQt6.QtGui import QKeySequence, QShortcut
 
 from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Qt
 from PySide6.QtWidgets import (
@@ -111,12 +115,19 @@ MAX_FORCE_SCALE = 1.0
 MIN_MAX_FORCE_OUTPUT = 0.0
 MAX_MAX_FORCE_OUTPUT = 10.0
 
+#variables to restore for projection mode
+RESTORE_MODE = "None"
+RESTORE_FREEZE = False
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Haptic Device Launcher")
         self.resize(780, 900)
 
+        # #ADDED LINES OVER HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+        # self._projection_mode = False;
+        
         self.process = QProcess(self)
         self.process.readyReadStandardOutput.connect(self._on_stdout)
         self.process.readyReadStandardError.connect(self._on_stderr)
@@ -139,6 +150,26 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._set_running_state(False)
+
+        #ADDED LINES OVER HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+        self.projection_shortcut = QShortcut(QKeySequence(Qt.Key.Key_M), self)
+        self.projection_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self.projection_shortcut.activated.connect(self._toggle_projection_mode)
+
+    #ADDED LINES OVER HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+    def _toggle_projection_mode(self):
+        if not self.ipc.is_connected():
+            return
+        #self._projection_mode = not self._projection_mode
+        if(RESTORE_MODE == "None"):
+            RESTORE_MODE == self.live_mode_combo.currentText();
+            RESTORE_FREEZE == self.freeze_checkbox.isChecked();
+            self.ipc.send(f"set freeze {'true' if self._projection_mode else 'false'}")
+            self.ipc.send(f"mode projection")
+        else:
+            RESTORE_MODE = "None"
+            self.ipc.send(f"set freeze {'true' if RESTORE_FREEZE else 'false'}")
+            self.ipc.send(f"mode {RESTORE_MODE}")
 
     # ------------------------------------------------------------------
     # UI construction
@@ -296,6 +327,10 @@ class MainWindow(QMainWindow):
             lambda checked: self.ipc.send(f"set freeze {'true' if checked else 'false'}")
         )
         row1.addWidget(self.freeze_checkbox)
+
+        #ADDED LINES OVER HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("P: toggle projection mode"))
 
         row1.addWidget(QLabel("Haptic mode:"))
         self.live_mode_combo = QComboBox()
@@ -641,6 +676,9 @@ class MainWindow(QMainWindow):
         self.freeze_checkbox.blockSignals(True)
         self.freeze_checkbox.setChecked(fields.get("freeze") == "true")
         self.freeze_checkbox.blockSignals(False)
+
+        #ADDED LINES OVER HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+        self._projection_mode = fields.get("projection_mode") == "true"
 
         for checkbox, key in (
             (self.render_atoms_checkbox, "render_atoms"),
