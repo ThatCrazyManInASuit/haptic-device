@@ -12,7 +12,7 @@
 #   release/lin-x86_64-cc  on WSL/Linux
 GLFW      = $(TOP_DIR)/extras/GLFW
 GLFW_LIB  = $(GLFW)/lib/$(CFG)/$(OS)-$(ARCH)-$(COMPILER)/libglfw.a
-CXXFLAGS += -I$(GLFW)/include
+CXXFLAGS += -I$(GLFW)/include -g -O0
 LDFLAGS  += -L$(GLFW)/lib/$(CFG)/$(OS)-$(ARCH)-$(COMPILER)
 LDLIBS   += -lglfw
 $(TARGET): $(GLFW_LIB)
