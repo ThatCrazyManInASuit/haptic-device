@@ -65,7 +65,7 @@ std::vector<chai3d::cVector3d> initialPositions;
 
 // Radius of an atom in world units. 
 // Based on the covalent radius of hydrogen, .37 Å
-const double SPHERE_RADIUS = 0.37 * DIST_SCALE;
+const double H_RADIUS = 0.37 * DIST_SCALE;
 
 // Haptic spring-damper constants used to reduce unwanted oscillations.
 const double K_HAPTIC_SPRING = 100.0;
@@ -653,8 +653,8 @@ std::vector<chai3d::cVector3d> generateShellPositions(int k, double radiusAngstr
  * @param radius the radius of the atom
  * @return a pointer to the initialized atom
  */
-Atom* initializeAtom(chai3d::cWorld* world, chai3d::cTexture2dPtr texture, int atomicNumber, double radius = SPHERE_RADIUS) {
-  Atom *new_atom = new Atom(radius, atomicNumber, world, texture); // create a atom and define its radius
+Atom* initializeAtom(chai3d::cWorld* world, chai3d::cTexture2dPtr texture, int atomicNumber, double radius = H_RADIUS) {
+  Atom *new_atom = new Atom(radius, atomicNumber, world, texture); // create a atom and define its radius 
   new_atom->setPeriodics(repeatX, repeatY, repeatZ);
   // set graphic properties of atom
   atoms.push_back(new_atom); // store pointer to atom
@@ -761,7 +761,7 @@ void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::arra
     std::vector<chai3d::cVector3d> positions = generateShellPositions(k, shellRadiusAngstroms);
     for (int i = 0; i < numSpheres; i++) {
       // initialize atom with texture and atomic number of 1 (hydrogen)
-      Atom *new_atom = initializeAtom(world, texture, 1, SPHERE_RADIUS); 
+      Atom *new_atom = initializeAtom(world, texture, 1, H_RADIUS); 
       if (i == 0) {
         new_atom->setCurrent(true); // set the first atom to the current
       } else {
