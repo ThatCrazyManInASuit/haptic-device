@@ -11,17 +11,19 @@ pynvml.nvmlInit()
 handle = pynvml.nvmlDeviceGetHandleByIndex(0)
 
 duration = 300
-end_time = time.time() + duration
+
 
 gpu_usage = []
 
 zeolite = read("./Zeolite.poscar")
 print("Initializing calculator...")
-predictor = pretrained_mlip.get_predict_unit("uma-s-1p2", device="cuda", inference_settings="turbo")
+predictor = pretrained_mlip.get_predict_unit("uma-m-1p1", device="cuda", inference_settings="turbo")
 zeolite.calc = FAIRChemCalculator(predictor, task_name="oc20")
 dyn = VelocityVerlet(zeolite, 1 * units.fs)
 print("Initialized! Starting simulation...")
 frames = 0
+
+end_time = time.time() + duration
 while time.time() < end_time:
     gpu_usage.append(pynvml.nvmlDeviceGetUtilizationRates(handle).gpu)
     dyn.run(1)
