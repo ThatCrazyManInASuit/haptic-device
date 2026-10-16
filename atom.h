@@ -20,7 +20,7 @@ class Atom : public chai3d::cShapeSphere {
         
         // Separated line and comment safely
         std::queue<chai3d::cVector3d> positionBuffer; // a position buffer so physics calculator calculate ahead 
-        std::set<Atom*> bondedAtoms; 
+        std::set<int> bondedAtoms; 
         
         chai3d::cShapeLine *velVector; // a rendered line that represents the atom's velocity 
         int atomicNumber; 
