@@ -17,7 +17,7 @@ gpu_usage = []
 
 zeolite = read("./Zeolite.poscar")
 print("Initializing calculator...")
-predictor = pretrained_mlip.get_predict_unit("uma-m-1p1", device="cuda", inference_settings="turbo")
+predictor = pretrained_mlip.get_predict_unit("uma-s-1p1", device="cuda", inference_settings="turbo")
 zeolite.calc = FAIRChemCalculator(predictor, task_name="oc20")
 dyn = VelocityVerlet(zeolite, 1 * units.fs)
 print("Initialized! Starting simulation...")
