@@ -14,7 +14,7 @@
 //------------------------------------------------------------------------------
 
 enum LocalPotential { LENNARD_JONES, MORSE, ASE };
-enum class HapticMode { Position, Standby, Force };
+enum class HapticMode { Position, Standby, Force, Projection };
 
 // Calculator object for force and potential energy calculatorString
 extern Calculator* calculatorPtr;

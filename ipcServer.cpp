@@ -58,6 +58,7 @@ string modeToString(HapticMode mode) {
     case HapticMode::Force: return "force";
     case HapticMode::Standby: return "standby";
     case HapticMode::Position: default: return "position";
+    case HapticMode::Projection: default: return "projection";
   }
 }
 
@@ -95,7 +96,7 @@ string buildStatus() {
       << " k_return=" << kReturn.load()
       << " k_dampen=" << kDampen.load()
       << " return_delay=" << returnDelaySeconds.load()
-      << " force_scale=" << hapticForceScale.load();
+      << " force_scale=" << hapticForceScale.load()
   return out.str();
 }
 
@@ -131,6 +132,8 @@ string handleCommand(const string &line) {
         hapticMode.store(HapticMode::Position);
       } else if (value == "standby") {
         hapticMode.store(HapticMode::Standby);
+      } else if (value == "projection") {
+        hapticMode.store(HapticMode::Projection);
       } else {
         return "ERR mode must be force, position, or standby";
       }
