@@ -359,25 +359,34 @@ double Atom::getEN() const {
 }
 
 void Atom::addBufferedPos(chai3d::cVector3d pos) {
-    prevPos = getLatestPos();
+    std::lock_guard<std::mutex> lock(bufferMutex);
+    prevPos = latestPosLocked();
     positionBuffer.push(pos);
 }
 
 chai3d::cVector3d Atom::nextPos() {
+    std::lock_guard<std::mutex> lock(bufferMutex);
     chai3d::cVector3d result = positionBuffer.front();
     positionBuffer.pop();
     return result;
 }
 
 chai3d::cVector3d Atom::getPrevPos() const {
+    std::lock_guard<std::mutex> lock(bufferMutex);
     return prevPos;
 }
 
 bool Atom::hasNextPos() const {
+    std::lock_guard<std::mutex> lock(bufferMutex);
     return !positionBuffer.empty();
 }
 
 chai3d::cVector3d Atom::getLatestPos() const {
+    std::lock_guard<std::mutex> lock(bufferMutex);
+    return latestPosLocked();
+}
+
+chai3d::cVector3d Atom::latestPosLocked() const {
     if (positionBuffer.empty()) {
         return getLocalPos();
     }

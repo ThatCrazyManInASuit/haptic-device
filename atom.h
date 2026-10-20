@@ -2,6 +2,7 @@
 #define ATOM_H
 
 #include "chai3d.h"
+#include <mutex>
 #include <queue>
 #include <set>
 
@@ -20,12 +21,21 @@ class Atom : public chai3d::cShapeSphere {
         
         // Separated line and comment safely
         std::queue<chai3d::cVector3d> positionBuffer; // a position buffer so physics calculator calculate ahead 
+        // positionBuffer and prevPos are filled by the physics thread and drained by the
+        // graphics thread, so every access to them has to hold this.
+        mutable std::mutex bufferMutex;
         std::set<int> bondedAtoms; 
         
         chai3d::cShapeLine *velVector; // a rendered line that represents the atom's velocity 
         int atomicNumber; 
         chai3d::cColorf color; 
         void refreshMaterial(chai3d::cShapeSphere *sphere);
+
+        /**
+         * @brief Gets the latest buffered position. The caller must already hold bufferMutex.
+         * @return the latest buffered position, or the rendered position if the buffer is empty
+         */
+        chai3d::cVector3d latestPosLocked() const;
 
     public:
         void setPeriodics(int x, int y, int z);
