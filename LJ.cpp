@@ -11,6 +11,7 @@
 #include <math.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -32,6 +33,7 @@
 #include <atomic>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <stdexcept>
 
@@ -1395,13 +1397,174 @@ void initializePhysicsThread() {
   std::cout << "Physics thread started!" << std::endl;
 }
 
+// All polyhedrons share this translucent mesh, rebuilt ffrom scratch every bond recompute.
+chai3d::cMesh *polyhedra = nullptr; 
+
+// Fewer neighbours than this cannot enclose a volume. (The tetrehedron is a minimum-vertex polyhedron: 4 vertices)
+const size_t MIN_COORDINATION = 4;
+
+// How far off a candidate face's plane a neighbour may sit and still count as
+// lying in it (0.001 Å). Tight enough to keep genuinely distinct hull faces
+// apart, loose enough that an exactly square face comes out as one quadrilateral
+// rather than four overlapping triangles.
+// TODO: Look into what this means
+const double PLANE_TOLERANCE = 1e-3 * DIST_SCALE;
+
+const float POLYHEDRON_OPACITY = 0.55f;
+
+/**
+ * @brief Creates the mesh holding every coordination polyhedron and attaches it to the scene
+ * @param world the CHAI3D world to add the mesh to
+ */
+void initializePolyhedra(chai3d::cWorld *world) {
+  polyhedra = new chai3d::cMesh();
+  polyhedra->setUseVertexColors(true); // face color comes from atom colors
+  polyhedra->setUseTransparency(true); // transparent mesh
+  world->addChild(polyhedra);
+}
+
+/**
+ * @brief Gets whether a polyhedron should be drawn around a site. The requirements for a
+ *        polyhedron to render is as follows:
+ *        1. The site has enough neighbours to enclose a volume (4)
+ *        2. Every neighbour must be strictly more electronegative (cation in anion cage)
+ * @param center the candidate central site
+ * @return true if a polyhedron should be drawn around the site, false otherwise
+ */
+bool isPolyhedralCenter(Atom *center) {
+  if (center->getBondedAtoms().size() < MIN_COORDINATION) {
+    return false;
+  }
+  for (int bondedAtomIndex : center->getBondedAtoms()) {
+    if (atoms[bondedAtomIndex]->getEN() <= center->getEN()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief Collects the neighbours lying in a candidate face's plane, provided that plane bounds
+ *        the whole neighbour shell and so is a face of the shell's convex hull
+ * @param normal the unit normal of the candidate plane
+ * @param point a point lying on the candidate plane
+ * @param shell indices of the neighbours around the central site
+ * @return the indices of the neighbours lying in the plane, or an empty vector if the plane
+ *         has neighbours on both sides and therefore is not a hull face
+ */
+std::vector<int> hullFace(const chai3d::cVector3d &normal, const chai3d::cVector3d &point,
+    const std::vector<int> &shell) {
+  std::vector<int> onPlane;
+  bool positive = false;
+  bool negative = false;
+  for (int index : shell) {
+    double offset = chai3d::cDot(atoms[index]->getLocalPos() - point, normal);
+    if (offset > PLANE_TOLERANCE) {
+      positive = true;
+    } else if (offset < -PLANE_TOLERANCE) {
+      negative = true;
+    } else {
+      onPlane.push_back(index);
+    }
+    if (positive && negative) {
+      return std::vector<int>();
+    }
+  }
+  return onPlane;
+}
+
+/**
+ * @brief Adds one convex hull face to the polyhedron mesh as a triangle fan
+ * @param face indices of the coplanar neighbours forming the face, at least three of them
+ * @param normal the unit normal of the face's plane
+ * @param centerPos the position of the central site, used to orient the face outwards
+ * @param color the color to tint the face
+ */
+void addPolyhedronFace(const std::vector<int> &face, const chai3d::cVector3d &normal,
+    const chai3d::cVector3d &centerPos, const chai3d::cColorf &color) {
+  chai3d::cVector3d centroid(0, 0, 0);
+  for (int index : face) {
+    centroid += atoms[index]->getLocalPos();
+  }
+  centroid /= static_cast<double>(face.size());
+
+  // If the face is facing inwards, flip the normal to face outwards. This prevents CHAI3D from
+  // culling such faces.
+  chai3d::cVector3d outward = normal;
+  if (chai3d::cDot(outward, centroid - centerPos) < 0) {
+    outward.negate();
+  }
+
+  // The face's vertices are walked in angular order around its centroid, so a face with more than
+  // three corners fans out without folding over itself.
+  chai3d::cVector3d xAxis = atoms[face[0]]->getLocalPos() - centroid;
+  xAxis.normalize();
+  chai3d::cVector3d yAxis = chai3d::cCross(outward, xAxis);
+  std::vector<int> corners = face;
+  std::sort(corners.begin(), corners.end(), [&](int first, int second) {
+    chai3d::cVector3d toFirst = atoms[first]->getLocalPos() - centroid;
+    chai3d::cVector3d toSecond = atoms[second]->getLocalPos() - centroid;
+    return atan2(chai3d::cDot(toFirst, yAxis), chai3d::cDot(toFirst, xAxis)) <
+           atan2(chai3d::cDot(toSecond, yAxis), chai3d::cDot(toSecond, xAxis));
+  });
+
+  const chai3d::cVector3d NO_TEXTURE_COORD(0, 0, 0);
+  for (size_t i = 1; i + 1 < corners.size(); i++) {
+    // Forms the shape by choosing an "anchor" vertex and forming triangles in-order by degree
+    polyhedra->newTriangle(
+      atoms[corners[0]]->getLocalPos(),
+      atoms[corners[i]]->getLocalPos(),
+      atoms[corners[i + 1]]->getLocalPos(),
+      outward, outward, outward,
+      NO_TEXTURE_COORD, NO_TEXTURE_COORD, NO_TEXTURE_COORD,
+      color, color, color
+    );
+  }
+}
+
+/**
+ * @brief Adds the convex hull of a site's neighbour shell to the polyhedron mesh
+ * @param center the central site
+ */
+void addPolyhedron(Atom *center) {
+  const std::vector<int> shell(center->getBondedAtoms().begin(), center->getBondedAtoms().end());
+  const chai3d::cVector3d centerPos = center->getLocalPos();
+  chai3d::cColorf color = center->getColor();
+  color.setA(POLYHEDRON_OPACITY);
+
+  // Any plane through three neighbours that leaves all the others on one side is a hull face.
+  // Since coplanar triples describe the same face, each face is only emitted the first time it is
+  // found.
+  std::set<std::vector<int>> emitted;
+  for (size_t i = 0; i < shell.size(); i++) {
+    for (size_t j = i + 1; j < shell.size(); j++) {
+      for (size_t k = j + 1; k < shell.size(); k++) {
+        const chai3d::cVector3d &point = atoms[shell[i]]->getLocalPos();
+        chai3d::cVector3d normal = chai3d::cComputeSurfaceNormal(
+          point, 
+          atoms[shell[j]]->getLocalPos(), 
+          atoms[shell[k]]->getLocalPos()
+        );
+        if (normal.lengthsq() != 0) { // Only add face if the three neighbours aren't collinear
+          std::vector<int> face = hullFace(normal, point, shell);
+          if (face.size() >= 3 && emitted.insert(face).second) {
+            addPolyhedronFace(face, normal, centerPos, color);
+          }
+        }
+      }
+    }
+  }
+}
+
 /**
  *  pre: sceneMutex is locked
- *  @brief Recomputes which atom pairs are within the threshold of each other and
- *         shows/hides/creates the rendered line connecting each bonded pair.
+ *  @brief Recomputes which atom pairs are within the threshold of each other, shows/hides/creates
+ *         the rendered line connecting each bonded pair, and rebuilds the coordination polyhedra
+ *         around the atoms that have one.
  */
 void updateBonds(chai3d::cWorld* world) {
-  if (!renderBonds.load()) {
+  polyhedra->clear();
+  if (renderBonds.load()) {
     for (auto &entry : bondLines) {
       entry.second->setShowEnabled(false);
     }
@@ -1414,10 +1577,18 @@ void updateBonds(chai3d::cWorld* world) {
         // Atom pairs closer than this threshold are considered bonded for rendering.
         if (distance < (1.2 * (atoms[i]->getRadius() + atoms[j]->getRadius()))) {
           bondedPairs.insert(std::make_pair(i, j));
-          atoms[i]->getBondedAtoms().insert(atoms[j]);
+          atoms[i]->getBondedAtoms().insert(j);
+          atoms[j]->getBondedAtoms().insert(i);
         } else {
-          atoms[i]->getBondedAtoms().erase(atoms[j]);
+          atoms[i]->getBondedAtoms().erase(j);
+          atoms[j]->getBondedAtoms().erase(i);
         }
+      }
+    }
+
+    for (Atom *atom : atoms) {
+      if (isPolyhedralCenter(atom)) {
+        addPolyhedron(atom);
       }
     }
 
@@ -1438,65 +1609,6 @@ void updateBonds(chai3d::cWorld* world) {
     for (auto &entry : bondLines) {
       if (bondedPairs.find(entry.first) == bondedPairs.end()) {
         entry.second->setShowEnabled(false);
-      }
-    }
-  }
-}
-
-/**
- * @brief Gets whether all bonded atoms around a central site are strictly more electronegative than
- *        the central site
- * @param bonded vector of atoms bonded to the central site
- * @param center the center site
- */
-bool isAllElectronegative(Atom* center) {
-  for (Atom* bondedAtom : center->getBondedAtoms()) {
-      if (bondedAtom->getEN() <= center->getEN()) {
-        return false;
-      }
-  }
-  return true;
-}
-
-bool validMesh(chai3d::cVector3d surfaceNormal, chai3d::cVector3d point, Atom* center) {
-  int above;
-  for (Atom* bondedAtom : center->getBondedAtoms()) {
-    double distance = chai3d::cDot(bondedAtom->getLocalPos() - point, surfaceNormal);
-    int atomAbove;
-    if (distance > 0) {
-      atomAbove = 1;
-    } else if (distance < 0) {
-      atomAbove = -1;
-    }
-    if (above == 0) {
-      above = atomAbove;
-    } else {
-      if (above != atomAbove) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-// TODO: Add polyhedron simplification
-void updatePolyhedronMesh(Atom* atom) {
-  if (atom->getBondedAtoms().size() > 3 && isAllElectronegative(atom)) {
-    for (Atom* a : atom->getBondedAtoms()) {
-      for (Atom* b : atom->getBondedAtoms()) {
-        for (Atom* c : atom->getBondedAtoms()) {
-          if (a != b && a != c && b != c) {
-            chai3d::cVector3d surfaceNormal;
-            surfaceNormal = chai3d::cComputeSurfaceNormal(
-              a->getLocalPos(), 
-              b->getLocalPos(), 
-              c->getLocalPos()
-            );
-            if (validMesh(surfaceNormal, a->getLocalPos(), atom)) {
-              std::cout << "MESH HERE" << std::endl;
-            }
-          }
-        }
       }
     }
   }
@@ -1923,6 +2035,8 @@ int runApplication(int argc, char *argv[]) {
   // PLACE ATOMS
   placeAtoms(world, aseCell, asePbc, argc, argv);
   drawBoundingBox(world);
+  // added after the atoms so the translucent polyhedra blend over them
+  initializePolyhedra(world);
   initializeAtomLabels();
   for (int i = 0; i < atoms.size(); i++) {
     initialPositions.push_back(atoms[i]->getLocalPos());
