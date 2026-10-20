@@ -1716,6 +1716,7 @@ void updateGraphics(chai3d::cWorld* world) {
   c *= DIST_SCALE;
   for (Atom *atom : atoms) {
     atom->setShowEnabled(showAtoms);
+    for (const auto &plane : atom->getPeriodics()) {
       for (const auto &row : plane) {
         for (chai3d::cShapeSphere *periodic : row) {
           periodic->setShowEnabled(showAtoms);
