@@ -1564,7 +1564,7 @@ void addPolyhedron(Atom *center) {
  */
 void updateBonds(chai3d::cWorld* world) {
   polyhedra->clear();
-  if (renderBonds.load()) {
+  if (!renderBonds.load()) {
     for (auto &entry : bondLines) {
       entry.second->setShowEnabled(false);
     }
