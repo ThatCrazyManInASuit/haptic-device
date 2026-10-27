@@ -1816,6 +1816,8 @@ void updateGraphics(chai3d::cWorld* world) {
   // bond lines for the current atom positions
   bool showAtoms = renderAtoms.load();
   bool showForceVectors = renderForceVectors.load();
+  bool showPeriodics = showAtoms &&
+      (repeatX.load() > 1 || repeatY.load() > 1 || repeatZ.load() > 1);
   int anchoredCount = 0;
 
   // Places periodics atoms
