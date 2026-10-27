@@ -6,6 +6,8 @@
 #include <tuple>
 #include <GLFW/glfw3.h>
 
+// How many positions the physics thread may run ahead of the graphics thread.
+const static size_t MAX_BUFFERED_POSITIONS = 3;
 // array of atom stringnames by atomic number
 const static std::string ATOM_STRINGS[119] = { "There is no atomic no. 0!",
         "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S",
@@ -362,6 +364,9 @@ void Atom::addBufferedPos(chai3d::cVector3d pos) {
     std::lock_guard<std::mutex> lock(bufferMutex);
     prevPos = latestPosLocked();
     positionBuffer.push(pos);
+    while (positionBuffer.size() > MAX_BUFFERED_POSITIONS) {
+        positionBuffer.pop();
+    }
 }
 
 chai3d::cVector3d Atom::nextPos() {
