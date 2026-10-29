@@ -404,21 +404,6 @@ void initializeCamera(chai3d::cWorld* world, const chai3d::cStereoMode STEREO_MO
 }
 
 /**
- * @brief Creates the light source that illuminates the scene.
- * @param world the CHAI3D world object to add the light to
- */
-void initializeLight(chai3d::cWorld* world) {
-  chai3d::cSpotLight *light = new chai3d::cSpotLight(world); // create a light source
-  light->setEnabled(true); // enable light source
-  light->setLocalPos(0.0, 0.3, 0.4); // position the light source
-  light->setDir(0.0, -0.25, -0.4); // define the direction of the light beam
-  light->setShadowMapEnabled(false); // enable this light source to generate shadows
-  light->m_shadowMap->setQualityHigh(); // set the resolution of the shadow map
-  light->setCutOffAngleDeg(30); // set light cone half angle
-  world->addChild(light); // attach light to camera
-}
-
-/**
  * @brief Connects to, or prepares, the available haptic device.
  */
 void initializeHapticDevice() {
@@ -2000,10 +1985,9 @@ int runApplication(int argc, char *argv[]) {
   GLFWwindow* mainWindow = initializeMainWindow();
   ensureGLEW();
 
-  // WORLD - CAMERA - LIGHTING
+  // WORLD - CAMERA
   chai3d::cWorld* world = initializeWorld();
   initializeCamera(world, STEREO_MODE);
-  initializeLight(world);
   
   // HAPTIC DEVICE
   initializeHapticDevice();
