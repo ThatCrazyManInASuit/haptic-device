@@ -8,6 +8,12 @@
 
 // How many positions the physics thread may run ahead of the graphics thread.
 const static size_t MAX_BUFFERED_POSITIONS = 3;
+
+// Slices and stacks used to tessellate each atom.
+// TODO: Make this configurable in the launcher
+const static unsigned int SPHERE_SLICES = 12;
+const static unsigned int SPHERE_STACKS = 12;
+
 // array of atom stringnames by atomic number
 const static std::string ATOM_STRINGS[119] = { "There is no atomic no. 0!",
         "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S",
@@ -171,7 +177,7 @@ const static std::tuple<const GLfloat, const GLfloat, const GLfloat> ATOM_COLORS
  * black, respectively based on if the atom is selected/curent, anchored, or repeating.
  * Otherwise, the atom reverts to its JMol coloring.
  */
-void Atom::refreshMaterial(chai3d::cShapeSphere *sphere) {
+void Atom::refreshMaterial(chai3d::cMesh *sphere) {
     sphere->m_material->m_emission.set(0.0f, 0.0f, 0.0f, 1.0f);
     if (selected || current) {
         sphere->m_material->setRed();
@@ -180,14 +186,14 @@ void Atom::refreshMaterial(chai3d::cShapeSphere *sphere) {
     } else if (repeating) {
         sphere->m_material->setBlack();
     } else {
-        sphere->m_material->setColor(color);
+        setVertexColor(color);
     }
 }
 
 void Atom::setPeriodics(int x, int y, int z) {
     for (auto& plane : periodics) {
         for (auto& row : plane){
-            for (chai3d::cShapeSphere* s : row) {
+            for (chai3d::cMesh* s : row) {
                 getParent()->removeChild(s);  // detach BEFORE delete
                 delete s;                           // frees GL display list (needs GL ctx)
             }
@@ -200,6 +206,9 @@ void Atom::setPeriodics(int x, int y, int z) {
             periodics[i][j].resize(z);
             for (int k = 0; k < z; k++) {
                 periodics[i][j][k] = copy();
+                // copy() does not carry the display list flag over, and without
+                // it each image falls back to per-frame immediate-mode geometry
+                periodics[i][j][k]->setUseDisplayList(true);
                 refreshMaterial(periodics[i][j][k]);
                 getParent()->addChild(periodics[i][j][k]);
             }
@@ -207,7 +216,18 @@ void Atom::setPeriodics(int x, int y, int z) {
     } 
 }
 
-Atom::Atom(double radius, int atomicNum, chai3d::cWorld *world, chai3d::cTexture2dPtr texture) : chai3d::cShapeSphere(radius) {
+// Note: cShapeSphere isn't used anymore, for we can get better performance by creating our own spheres
+// from scratch with our own values of tesselation and use of display lists
+Atom::Atom(double radius, int atomicNum, chai3d::cWorld *world, chai3d::cTexture2dPtr texture) : chai3d::cMesh() {
+    this->radius = radius;
+    chai3d::cCreateSphere(this, radius, SPHERE_SLICES, SPHERE_STACKS);
+    // Cache the geometry in a display list
+
+    setUseDisplayList(true);
+
+    // Ensures collision still works for mouse events (i.e. selection)
+    createAABBCollisionDetector(0.0);
+
     anchor = false;
     current = false;
     repeating = false;
@@ -228,6 +248,8 @@ Atom::Atom(double radius, int atomicNum, chai3d::cWorld *world, chai3d::cTexture
 
     color.set(std::get<0>(colorTuple)/255, std::get<1>(colorTuple)/255, std::get<2>(colorTuple)/255);
     setUseCulling(true);
+    setUseMaterial(false);
+    setUseVertexColors(true);
     refreshMaterial(this);
     setTexture(texture);
     m_texture->setSphericalMappingEnabled(true);
@@ -235,8 +257,12 @@ Atom::Atom(double radius, int atomicNum, chai3d::cWorld *world, chai3d::cTexture
     world->addChild(this);
 }
 
-const std::vector<std::vector<std::vector<chai3d::cShapeSphere*>>>& Atom::getPeriodics() const {
+const std::vector<std::vector<std::vector<chai3d::cMesh*>>>& Atom::getPeriodics() const {
     return periodics;
+}
+
+double Atom::getRadius() const {
+    return radius;
 }
 
 std::set<int>& Atom::getBondedAtoms() {

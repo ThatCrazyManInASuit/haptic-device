@@ -7,7 +7,7 @@
 #include <set>
 
 
-class Atom : public chai3d::cShapeSphere { 
+class Atom : public chai3d::cMesh { 
     private: 
         bool anchor; 
         bool current; 
@@ -17,7 +17,7 @@ class Atom : public chai3d::cShapeSphere {
         chai3d::cVector3d force; 
         chai3d::cVector3d prevForce; 
         chai3d::cVector3d prevPos; 
-        std::vector<std::vector<std::vector<chai3d::cShapeSphere*>>> periodics; 
+        std::vector<std::vector<std::vector<chai3d::cMesh*>>> periodics; 
         
         // Separated line and comment safely
         std::queue<chai3d::cVector3d> positionBuffer; // a position buffer so physics calculator calculate ahead 
@@ -29,7 +29,8 @@ class Atom : public chai3d::cShapeSphere {
         chai3d::cShapeLine *velVector; // a rendered line that represents the atom's velocity 
         int atomicNumber; 
         chai3d::cColorf color; 
-        void refreshMaterial(chai3d::cShapeSphere *sphere);
+        double radius;
+        void refreshMaterial(chai3d::cMesh *sphere);
 
         /**
          * @brief Gets the latest buffered position. The caller must already hold bufferMutex.
@@ -47,7 +48,13 @@ class Atom : public chai3d::cShapeSphere {
          */
         Atom(double radius, int atomicNumber, chai3d::cWorld *world, chai3d::cTexture2dPtr texture);
 
-        const std::vector<std::vector<std::vector<chai3d::cShapeSphere*>>>& getPeriodics() const;
+        const std::vector<std::vector<std::vector<chai3d::cMesh*>>>& getPeriodics() const;
+
+        /**
+         * @brief Gets the radius of the atom
+         * @return the radius of the atom in world units
+         */
+        double getRadius() const;
 
         /**
          * @brief Returns if the atom is anchor

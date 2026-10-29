@@ -326,7 +326,8 @@ void ensureGLEW() {
 chai3d::cWorld* initializeWorld() {
   chai3d::cWorld *world = new chai3d::cWorld();
   world->m_backgroundColor.setWhite();
-  world->setShadowIntensity(0.3); // set shadow factor
+  world->setUseShadowCasting(false);
+  
   return world;
 }
 
@@ -643,7 +644,6 @@ std::vector<chai3d::cVector3d> generateShellPositions(int k, double radiusAngstr
 Atom* initializeAtom(chai3d::cWorld* world, chai3d::cTexture2dPtr texture, int atomicNumber, double radius = H_RADIUS) {
   Atom *new_atom = new Atom(radius, atomicNumber, world, texture); // create a atom and define its radius 
   new_atom->setPeriodics(repeatX, repeatY, repeatZ);
-  // set graphic properties of atom
   atoms.push_back(new_atom); // store pointer to atom
   world->addChild(new_atom->getVelVector()); // add line to world
   return new_atom;
@@ -701,7 +701,8 @@ void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell,
       centerCoords[0] = centerPos.x();
       centerCoords[1] = centerPos.y();
       centerCoords[2] = centerPos.z();
-      newAtom->setLocalPos(0.0, 0.0, 0.0); // set first atom at center of view
+      // set first atom at center of view. All other atoms will be placed relative to this atom
+      newAtom->setLocalPos(0.0, 0.0, 0.0); 
     } else {
         chai3d::cVector3d atomPos(positions[i][0], positions[i][1], positions[i][2]);
         // scale coordinates and insert
@@ -1403,6 +1404,8 @@ const float POLYHEDRON_OPACITY = 0.55f;
  */
 void initializePolyhedra(chai3d::cWorld *world) {
   polyhedra = new chai3d::cMesh();
+  polyhedra->setUseCulling(true);
+  polyhedra->setUseMaterial(false);
   polyhedra->setUseVertexColors(true); // face color comes from atom colors
   polyhedra->setUseTransparency(true); // transparent mesh
   world->addChild(polyhedra);
@@ -1817,8 +1820,8 @@ void updateGraphics(chai3d::cWorld* world) {
     atom->setShowEnabled(showAtoms);
     for (const auto &plane : atom->getPeriodics()) {
       for (const auto &row : plane) {
-        for (chai3d::cShapeSphere *periodic : row) {
-          periodic->setShowEnabled(showAtoms);
+        for (chai3d::cMesh *periodic : row) {
+          periodic->setShowEnabled(showPeriodics);
         }
       }
     }
