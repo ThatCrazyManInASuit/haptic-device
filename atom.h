@@ -6,6 +6,7 @@
 #include <queue>
 #include <set>
 
+const double DIST_SCALE = 0.02;
 
 class Atom : public chai3d::cMesh { 
     private: 
