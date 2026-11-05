@@ -243,7 +243,7 @@ _uma_predictor_cache = {}
 # Returns the cached UMA predictor for the given model and device, building it
 # lazily on first use. "turbo" inference settings trade a little accuracy for
 # the speed the haptic loop needs.
-def _get_uma_predictor(model_name="uma-s-1p2", device="cuda"):
+def _get_uma_predictor(model_name="uma-s-1p2p1", device="cuda"):
     from fairchem.core import pretrained_mlip
     key = (model_name, device)
 
@@ -251,7 +251,7 @@ def _get_uma_predictor(model_name="uma-s-1p2", device="cuda"):
         _uma_predictor_cache[key] = pretrained_mlip.get_predict_unit(
             model_name,
             device=device,
-            inference_settings="turbo"
+            inference_settings="nitro"
         )
 
     return _uma_predictor_cache[key]
@@ -309,7 +309,7 @@ def create_calculator(spec):
             task_name = parts[1]
 
         predictor = _get_uma_predictor(
-            model_name="uma-s-1p2",
+            model_name="uma-s-1p2p1",
             device="cuda"
         )
 
