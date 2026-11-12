@@ -32,6 +32,7 @@
 #include <atomic>
 #include <optional>
 #include <unordered_map>
+#include <algorithm>
 
 #include <stdexcept>
 
@@ -95,7 +96,8 @@ chai3d::cGenericHapticDevicePtr hapticDevice; // a pointer to the current haptic
 // The haptic mode the simulation is in.
 
 std::atomic<HapticMode> hapticMode(HapticMode::Position);
-
+HapticMode restoreMode = HapticMode::Position;
+std::atomic<bool> projRequest(false);
 
 // simulation time step in seconds; overridable at launch via
 // HAPTIC_DEVICE_TIME_STEP and changeable live via the IPC "set timestep" command
@@ -124,7 +126,16 @@ bool repeatChanged = false;
 
 // atom objects
 std::vector<Atom *> atoms;
+
+//variables related to projection mode and ghost atoms
 std::vector<Atom *> ghostAtoms;
+double largestDiameter = 0;
+Atom** sortedPointers;
+Atom** sortedNonGhostPointers;
+Atom** sortedGhostPointers;
+int* ghostIndicies;
+size_t sortedPointersSize;
+
 chai3d::cWorld *simulationWorld = nullptr;
 chai3d::cTexture2dPtr atomTexture;
 
@@ -173,6 +184,7 @@ chai3d::cScope *scope; // a scope to monitor the potential energy
 double global_minimum; // global minimum for the given cluster size
 
 std::atomic<bool> freezeAtoms(false); // determine if atoms should be frozen
+bool restoreFreeze;
 
 std::atomic<bool> renderAtoms(true); // determine if atom atoms should be drawn
 std::atomic<bool> renderForceVectors(true); // determine if force vector lines should be drawn
@@ -717,7 +729,7 @@ void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell,
       centerCoords[0] = centerPos.x();
       centerCoords[1] = centerPos.y();
       centerCoords[2] = centerPos.z();
-      newAtom->setLocalPos(0.0, 0.0, 0.0); // set first atom at center of view
+      newAtom->setSimulationPosition(chai3d::cVector3d(0.0, 0.0, 0.0)); // set first atom at center of view
     } else {
         chai3d::cVector3d atomPos(positions[i][0], positions[i][1], positions[i][2]);
         // scale coordinates and insert
@@ -725,7 +737,7 @@ void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell,
           chai3d::cVector3d STANDBY_OFFSET(chai3d::cVector3d(0.1, 0.1, 0.1));
           atomPos += STANDBY_OFFSET;
         }
-        newAtom->setLocalPos(DIST_SCALE * (atomPos - centerPos));
+        newAtom->setSimulationPosition(DIST_SCALE * (atomPos - centerPos));
     }
   }
 }
@@ -768,7 +780,7 @@ void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::arra
       if (i == 0) {
         new_atom->setCurrent(true); // set the first atom to the current
       } else {
-        new_atom->setLocalPos(positions[i - 1]);
+        new_atom->setSimulationPosition(positions[i - 1]);
       }
     }
   } else // read in specified file
@@ -1175,13 +1187,17 @@ void initializeHapticThread() {
 }
 
 /**
- * @brief Changes an atom's position to stay within a boundary
+ * @brief Wraps an unwrapped simulation position for rendering.
  * @param position the position of the atom
  * @param aseCell the 3x3 ASE cell matrix, flattened into a 9-element array
  * @param asePbc the periodic boundary condition to use
  */
-chai3d::cVector3d applyBoundaryConditions(chai3d::cVector3d pos, std::array<double, 9>& aseCell,
+chai3d::cVector3d wrapPositionForDisplay(chai3d::cVector3d pos, std::array<double, 9>& aseCell,
     std::array<int, 3>& asePbc) {
+  if (!asePbc[0] && !asePbc[1] && !asePbc[2]) {
+    return pos;
+  }
+
   chai3d::cVector3d initialCoords(centerCoords[0], centerCoords[1], centerCoords[2]);
   pos = pos / DIST_SCALE + initialCoords;
   
@@ -1222,18 +1238,22 @@ chai3d::cVector3d forceModeUpdateSelectedGroup(const std::vector<Atom*> &selecte
   for (Atom *atom : selected) {
     if (!atom->isAnchor()) {
       chai3d::cVector3d currentPosition = atom->getLatestPos();
-      chai3d::cVector3d previousPosition = atom->getPrevPos();
       chai3d::cVector3d targetPosition = position + selectedOffsets[atom];
       chai3d::cVector3d hapticForce = (targetPosition - currentPosition) * K_HAPTIC_SPRING -
                               atom->getVelocity() * K_HAPTIC_DAMPER;
       const double MAX_HAPTIC_ATOM_FORCE = 100.0; 
-      atom->setForce(atom->getForce() + clampVectorMagnitude(hapticForce, MAX_HAPTIC_ATOM_FORCE));
+      chai3d::cVector3d appliedForce =
+          clampVectorMagnitude(hapticForce, MAX_HAPTIC_ATOM_FORCE);
+      if (hapticMode.load() == HapticMode::Projection) {
+        atom->setForce(appliedForce);
+      } else {
+        atom->setForce(atom->getForce() + appliedForce);
+      }
       chai3d::cVector3d newPosition = getNewAtomPosition(atom, timeInterval);
-      atom->addBufferedPos(applyBoundaryConditions(newPosition, aseCell, asePbc));
+      atom->addBufferedPos(newPosition);
     }
-    
   }
-  // return (current->getLatestPos() - position) * K_HAPTIC - hapticDevice->getLinearVelocity * K_HAPTIC_DAMP
+
   return averageSimulationForce;
 }
 
@@ -1261,7 +1281,7 @@ chai3d::cVector3d positionModeUpdateSelectedGroup(const std::vector<Atom*> &sele
     atom->setVelocity(atom->getVelocity() + targetPosition - oldPosition - posModeAttractions[atom]);
     posModeAttractions[atom] = targetPosition - oldPosition;
     chai3d::cVector3d newPosition(getNewAtomPosition(atom, timeInterval));
-    atom->addBufferedPos(applyBoundaryConditions(newPosition, aseCell, asePbc));
+    atom->addBufferedPos(newPosition);
   }
   // Skylar note: this mode can sometimes have the classic feedback issue. The simulation can
   // drastically move the haptic device so much that the haptic device
@@ -1270,7 +1290,7 @@ chai3d::cVector3d positionModeUpdateSelectedGroup(const std::vector<Atom*> &sele
   return getAverageAtomGroupForce(selected);
 }
 
-void makeGhostAtoms(float transparency, const std::vector<Atom*> &selectedAtoms);
+void makeGhostAtoms(float transparency, double mass, const std::vector<Atom*> &selectedAtoms);
 void deleteGhostAtoms();
 
 /**
@@ -1289,12 +1309,22 @@ chai3d::cVector3d stepSim(const chai3d::cVector3d &requestedPosition, const doub
   Atom *current = atoms[currentIndex];
   chai3d::cVector3d position = hasHapticDevice ? requestedPosition : current->getLatestPos();
   std::vector<Atom*> selectedAtoms = getSelectedAtoms();
-  if (hapticMode.load() == HapticMode::Projection && ghostAtoms.empty()) {
-    makeGhostAtoms(0.45f, selectedAtoms);
-  }
 
-  if(hapticMode.load() != HapticMode::Projection && !ghostAtoms.empty()) {
-    deleteGhostAtoms();
+  bool isProjMode = hapticMode.load() == HapticMode::Projection;
+  bool storeProjRequest = projRequest; //local copy of projRequest
+
+  if(storeProjRequest != isProjMode) {
+    if(storeProjRequest) {
+      restoreMode = hapticMode;
+      restoreFreeze = freezeAtoms;
+      hapticMode.store(HapticMode::Projection);
+      freezeAtoms.store(true);
+      projectionModeInit(selectedAtoms);
+    } else {
+      hapticMode.store(restoreMode);
+        freezeAtoms.store(restoreFreeze);
+        projectionModeOff();
+    }
   }
 
   chai3d::cVector3d currentPosition(0,0,0);
@@ -1352,7 +1382,7 @@ chai3d::cVector3d stepSim(const chai3d::cVector3d &requestedPosition, const doub
     for (Atom *atom : atoms) {
       if (!atom->isAnchor() && !atom->isSelected()) {
         chai3d::cVector3d new_position = getNewAtomPosition(atom, timeInterval);
-        atom->addBufferedPos(applyBoundaryConditions(new_position, aseCell, asePbc));
+        atom->addBufferedPos(new_position);
         // Same world-unit-to-physical conversion as langevinThermostatForce.
         chai3d::cVector3d v = atom->getVelocity() / DIST_SCALE;
         kineticEnergy += 0.5 * atom->getMass() * v.dot(v);
@@ -1366,9 +1396,8 @@ chai3d::cVector3d stepSim(const chai3d::cVector3d &requestedPosition, const doub
   } else {
     switch (hapticMode) {
       case HapticMode::Projection:
-        hapticForce = forceModeUpdateSelectedGroup(ghostAtoms, position, timeInterval);
+        projectionModeUpdate(position, timeInterval);
         break;
-
       default:
         break;
     }
@@ -1385,7 +1414,7 @@ chai3d::cVector3d stepSim(const chai3d::cVector3d &requestedPosition, const doub
   return hapticForce;
 }
 
-void makeGhostAtoms(float transparency, const std::vector<Atom*> &selectedAtoms) {
+void makeGhostAtoms(float transparency, double mass, const std::vector<Atom*> &selectedAtoms) {
   if (!simulationWorld || !atomTexture) {
     return;
   }
@@ -1393,7 +1422,10 @@ void makeGhostAtoms(float transparency, const std::vector<Atom*> &selectedAtoms)
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   for (Atom *atom : selectedAtoms) {
     Atom *ghost = new Atom(atom->getRadius(), atom->getAtomicNumber(), simulationWorld, atomTexture);
-    ghost->setLocalPos(atom->getLatestPos());
+    ghost->setMass(mass);
+    ghost->setVelocity(chai3d::cVector3d(0.0, 0.0, 0.0));
+    ghost->setForce(chai3d::cVector3d(0.0, 0.0, 0.0));
+    ghost->setSimulationPosition(atom->getLatestPos());
     ghost->setTransparencyLevel(transparency);
     simulationWorld->addChild(ghost->getVelVector());
     ghostAtoms.push_back(ghost);
@@ -1401,6 +1433,11 @@ void makeGhostAtoms(float transparency, const std::vector<Atom*> &selectedAtoms)
 }
 
 void deleteGhostAtoms() {
+  delete[] sortedGhostPointers;
+  delete[] sortedNonGhostPointers;
+  delete[] ghostIndicies;
+  delete[] sortedPointers;
+
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   for (Atom *ghost : ghostAtoms) {
     if (!ghost) {
@@ -1419,6 +1456,228 @@ void deleteGhostAtoms() {
     delete ghost;
   }
   ghostAtoms.clear();
+}
+
+void projectionModeInit(const std::vector<Atom*> &selectedAtoms) {
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  makeGhostAtoms(0.45f, 1.0, selectedAtoms);
+
+  //copy the ghost atoms into the sortedGhostPointers list and sort
+  sortedGhostPointers = new Atom*[ghostAtoms.size()];
+  std::copy(ghostAtoms.begin(), ghostAtoms.end(), sortedGhostPointers);
+  if (ghostAtoms.size() > 1) {
+    std::sort(sortedGhostPointers, sortedGhostPointers + ghostAtoms.size(),
+    [](const Atom* a, const Atom* b) {
+      return a->getMinXPos() < b->getMinXPos();
+    });
+  }
+
+  //copy the non ghost atoms into sortedNonGhostPointers list and sort
+  sortedNonGhostPointers = new Atom*[atoms.size()];
+  std::copy(atoms.begin(), atoms.end(), sortedNonGhostPointers);
+  std::sort(sortedNonGhostPointers, sortedNonGhostPointers + atoms.size(), 
+  [](const Atom* a, const Atom* b) {
+    return a->getMinXPos() < b->getMinXPos();
+  });
+
+  //sort the sortedNonGhostPointers and sortedGhostPointers together
+  //store into sortedPointers
+  ghostIndicies = new int[ghostAtoms.size()]; //just initialize
+  
+  sortedPointersSize = atoms.size() + ghostAtoms.size();
+  sortedPointers = new Atom*[sortedPointersSize];
+  mergeSortAtoms(sortedNonGhostPointers, sortedGhostPointers,
+    sortedPointers, atoms.size(), ghostAtoms.size(), ghostIndicies);
+  
+  //find the largest diameter
+  largestDiameter = 0;
+  for (int i = 0; i < sortedPointersSize; ++i) {
+    Atom* atom = sortedPointers[i];
+    double diameter = atom->getRadius() * 2;
+
+    if(diameter > largestDiameter) {
+      largestDiameter = diameter;
+    }
+  }
+}
+
+void projectionModeOff() {
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+  deleteGhostAtoms();
+}
+
+void projectionModeUpdate(chai3d::cVector3d position, const double timeInterval) {
+  std::lock_guard<std::recursive_mutex> lock(sceneMutex);
+
+  forceModeUpdateSelectedGroup(ghostAtoms, position, timeInterval);
+
+  std::sort(sortedGhostPointers, sortedGhostPointers + ghostAtoms.size(),
+      [](const Atom* a, const Atom* b) {
+        return a->getMinXPos() < b->getMinXPos();
+      });
+
+  mergeSortAtoms(sortedNonGhostPointers, sortedGhostPointers, sortedPointers,
+      sortedPointersSize - ghostAtoms.size(), ghostAtoms.size(), ghostIndicies);
+
+  checkAllGhostCollisions(sortedPointers, sortedPointersSize, largestDiameter);
+}
+
+//size is passed in because atom's rendered size does not have to be equal
+//to the size being checked within the collision, which will often be 
+//smaller than the rendered size 
+bool checkCollision(const Atom* a, const Atom* b, double sizeA, double sizeB) {
+  chai3d::cVector3d aPos= a->getLatestPos();
+  chai3d::cVector3d bPos = b->getLatestPos();
+  distX = aPos.x() - bPos.x();
+  distY = aPos.y() - bPos.y();
+  distZ = aPos.z() - bPos.z();
+
+  addedSizes = sizeA + sizeB;
+
+  //check if distance^2 <= addedSizes^2
+  return (((distX*distX) + (distY*distY) + (distZ*distZ)) <= 
+      ((addedSizes * addedSizes)));
+}
+
+void checkAllGhostCollisions(Atom* sortedPointers[], int sortedPointersSize, 
+  double largestDiameter, void (*handleCollision)(Atom*)) {
+
+  if (sortedPointersSize <= 1) return;
+
+  int numGhostAtoms = ghostAtoms.size();
+  for(int i = 0; i < numGhostAtoms; i++) {
+
+    int ghostAtomInd = ghostIndicies[i];
+
+    //check to the left of the atoms
+    int j = (ghostAtomInd - 1 + sortedPointersSize) % sortedPointersSize;
+    while(j != ghostAtomInd) {
+      Atom *atomA = sortedPointers[j];
+      Atom *atomB = sortedPointers[ghostAtomInd];
+
+      chai3d::cVector3d wrappedDelta = getMinDistBetweenAtoms(atomA, atomB);
+      double distX = wrappedDelta.x();
+
+      if (std::abs(distX - atomA->getRadius() + atomB->getRadius()) > largestDiameter) {
+        break; //stop checking more atoms in the list
+      }
+
+      if((wrappedDelta.length() <= atomA->getRadius() + atomB->getRadius())) {
+        //do whatever the user wants with the ghost atom
+        handleCollision(atomB);
+      }
+      
+      j = (j - 1 + sortedPointersSize) % sortedPointersSize;
+    }
+
+    //check to the right of the atoms
+    j = (ghostAtomInd + 1) % sortedPointersSize;
+    while(j != ghostAtomInd) {
+      Atom *atomA = sortedPointers[j];
+      Atom *atomB = sortedPointers[ghostAtomInd];
+
+      chai3d::cVector3d wrappedDelta = getMinDistBetweenAtoms(atomA, atomB);
+      double distX = wrappedDelta.x();
+
+      if (std::abs(distX - atomA->getRadius() + atomB->getRadius()) > largestDiameter) {
+        break; //stop checking more atoms in the list
+      }
+
+      if((wrappedDelta.length() <= atomA->getRadius() + atomB->getRadius())) {
+        //do whatever the user wants with the ghost atom
+        handleCollision(atomB);
+      }
+      j = (j + 1) % sortedPointersSize;
+    }
+  }
+}
+
+//assumes that sortedNonGhosts[] and sortedGhosts[] are ALREADY SORTED
+void mergeSortAtoms(Atom* sortedNonGhosts[], Atom* sortedGhosts[],
+    Atom* sortedAllAtoms[], int numNonGhosts, int numGhosts,
+    int ghostIndicies[]) {
+
+  //assume sortedAllAtoms is initialized to numNonGhosts+numGhosts slots
+  int i = 0;
+  int j = 0;
+  int k = 0;
+
+  while (i < numNonGhosts && j < numGhosts) {
+      Atom* a = sortedNonGhosts[i];
+      Atom* b = sortedGhosts[j];
+
+      if (a->getMinXPos() <= b->getMinXPos()) {
+          sortedAllAtoms[k++] = sortedNonGhosts[i++];
+      } else {
+          sortedAllAtoms[k] = sortedGhosts[j];
+          ghostIndicies[j] = k;
+          j++;
+          k++;
+      }
+  }
+
+  while (i < numNonGhosts) {
+      sortedAllAtoms[k++] = sortedNonGhosts[i++];
+  }
+
+  while (j < numGhosts) {
+      sortedAllAtoms[k] = sortedGhosts[j];
+      ghostIndicies[j] = k;
+      j++;
+      k++;
+  }
+}
+
+//ONLY WORKS FOR RECTANGULAR PERIODIC BOUNDARIES FOR NOW!!!
+//doesn't work for tilted boundaries yet
+chai3d::cVector3d getMinDistBetweenAtoms(Atom *atomA, Atom *atomB) {
+  chai3d::cVector3d a(aseCell[0], aseCell[1], aseCell[2]);
+  chai3d::cVector3d b(aseCell[3], aseCell[4], aseCell[5]);
+  chai3d::cVector3d c(aseCell[6], aseCell[7], aseCell[8]);
+  a *= DIST_SCALE;
+  b *= DIST_SCALE;
+  c *= DIST_SCALE;
+
+  const chai3d::cVector3d atomDelta = atomA->getLocalPos() - atomB->getLocalPos();
+
+  const chai3d::cVector3d bc = chai3d::cCross(b, c);
+  const chai3d::cVector3d ca = chai3d::cCross(c, a);
+  const chai3d::cVector3d ab = chai3d::cCross(a, b);
+
+  const double volume = chai3d::cDot(a, bc);
+
+  if (std::abs(volume) < 1e-12) {
+    throw std::runtime_error("Cannot calculate periodic distance: cell is singular");
+  }
+
+  // Convert the displacement to fractional cell coordinates.
+  double fx = chai3d::cDot(atomDelta, bc) / volume;
+  double fy = chai3d::cDot(atomDelta, ca) / volume;
+  double fz = chai3d::cDot(atomDelta, ab) / volume;
+
+  // Shift by whole cell lengths along periodic directions to use the
+  // nearest image of atom B relative to atom A.
+  if (asePbc[0]) {
+    fx -= round(fx);
+  }
+  if (asePbc[1]) {
+    fy -= round(fy);
+  }
+  if (asePbc[2]) {
+    fz -= round(fz);
+  }
+
+  // Convert the minimum-image displacement back to world coordinates.
+  const chai3d::cVector3d wrappedDelta (
+    fx * a[0] + fy * b[0] + fz * c[0],
+    fx * a[1] + fy * b[1] + fz * c[1],
+    fx * a[2] + fy * b[2] + fz * c[2]
+  );
+
+  //how to get the distance and the distanceX between atoms
+  // const double centerDistance = sqrt(dot(wrappedDelta, wrappedDelta));
+  // const double distanceX = std::abs(wrappedDelta.x());
+  return wrappedDelta;
 }
 
 /**
@@ -1728,30 +1987,32 @@ void updateGraphics(chai3d::cWorld* world) {
     if (repeatChanged) {
       atom->setPeriodics(repeatX, repeatY, repeatZ);
     }
-    if (atom->hasNextPos()) {
-      auto periodics = atom->getPeriodics();
-      chai3d::cVector3d atomPos = atom->nextPos();
-      atom->setLocalPos(atomPos);
-      int xLength = periodics.size();
-      int yLength = periodics[0].size();
-      int zLength = periodics[0][0].size();
-      int startX = xLength / -2;
-      int startY = yLength / -2;
-      int startZ = zLength / -2;
-      for (int i = startX; i < xLength + startX; i++) {
-        for (int j = startY; j < yLength + startY; j++) {
-          for (int k = startZ; k < zLength + startZ; k++) {
-            chai3d::cVector3d periodicPos = atomPos + i * a + j * b + k * c;
-            periodics[i - startX][j - startY][k - startZ]->setLocalPos(periodicPos);
-          }
+    chai3d::cVector3d simulationPosition = atom->hasNextPos()
+        ? atom->nextPos()
+        : atom->getLatestPos();
+    chai3d::cVector3d atomPos = wrapPositionForDisplay(simulationPosition, aseCell, asePbc);
+    atom->setLocalPos(atomPos);
+    auto periodics = atom->getPeriodics();
+    int xLength = periodics.size();
+    int yLength = periodics[0].size();
+    int zLength = periodics[0][0].size();
+    int startX = xLength / -2;
+    int startY = yLength / -2;
+    int startZ = zLength / -2;
+    for (int i = startX; i < xLength + startX; i++) {
+      for (int j = startY; j < yLength + startY; j++) {
+        for (int k = startZ; k < zLength + startZ; k++) {
+          chai3d::cVector3d periodicPos = atomPos + i * a + j * b + k * c;
+          periodics[i - startX][j - startY][k - startZ]->setLocalPos(periodicPos);
         }
       }
     }
   }
   for (Atom *ghost : ghostAtoms) {
-    if (ghost->hasNextPos()) {
-      ghost->setLocalPos(ghost->nextPos());
-    }
+    chai3d::cVector3d simulationPosition = ghost->hasNextPos()
+        ? ghost->nextPos()
+        : ghost->getLatestPos();
+    ghost->setLocalPos(wrapPositionForDisplay(simulationPosition, aseCell, asePbc));
     ghost->updateForceVector();
   }
   if (repeatChanged) {
@@ -2118,6 +2379,15 @@ bool setLiveRepeatZ(int value) {
   }
   repeatZ.store(value);
   repeatChanged = true;
+  return true;
+}
+
+bool projectionModeToggle() {
+  if(projRequest.load() == false) {
+    projRequest.store(true);
+  } else {
+    projRequest.store(false);
+  }
   return true;
 }
 

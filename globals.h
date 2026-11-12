@@ -168,6 +168,10 @@ bool setLiveRepeatY(int value);
  * @param value How many times to repeat in the z-axis
  */
 bool setLiveRepeatZ(int value);
+/**
+ * @brief Toggles projection mode
+ */
+bool projectionModeToggle();
 
 extern bool showDebug; // debug menu toggle
 extern std::vector<chai3d::cLabel *> debugLabels; // debug labels 

@@ -57,8 +57,8 @@ string modeToString(HapticMode mode) {
   switch (mode) {
     case HapticMode::Force: return "force";
     case HapticMode::Standby: return "standby";
+    case HapticMode::Projection: return "projection";
     case HapticMode::Position: default: return "position";
-    case HapticMode::Projection: default: return "projection";
   }
 }
 
@@ -96,7 +96,7 @@ string buildStatus() {
       << " k_return=" << kReturn.load()
       << " k_dampen=" << kDampen.load()
       << " return_delay=" << returnDelaySeconds.load()
-      << " force_scale=" << hapticForceScale.load()
+      << " force_scale=" << hapticForceScale.load();
   return out.str();
 }
 
@@ -123,8 +123,12 @@ string handleCommand(const string &line) {
       if (value != "true" && value != "false") {
         return "ERR freeze must be true or false";
       }
-      freezeAtoms.store(value == "true");
-      return "OK";
+      if(hapticMode.load() != HapticMode::Projection) {
+        freezeAtoms.store(value == "true");
+        return "OK";
+      } else {
+        return "Freeze cannot be toggled during projection mode";
+      }
     } else if (key == "mode") {
       if (value == "force") {
         hapticMode.store(HapticMode::Force);
@@ -133,7 +137,7 @@ string handleCommand(const string &line) {
       } else if (value == "standby") {
         hapticMode.store(HapticMode::Standby);
       } else if (value == "projection") {
-        hapticMode.store(HapticMode::Projection);
+        projectionModeToggle();
       } else {
         return "ERR mode must be force, position, or standby";
       }
