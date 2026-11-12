@@ -200,6 +200,8 @@ Atom::Atom(double radius, int atomicNum, chai3d::cWorld *world, chai3d::cTexture
     force.zero();
     prevForce.zero();
     prevPos = getLocalPos();
+    latestSimulationPosition.zero();
+    hasSimulationPosition = false;
 
     atomicNumber = atomicNum;
 
@@ -332,9 +334,20 @@ double Atom::getMass() const {
     return ATOM_WEIGHTS[atomicNumber];
 }
 
+void Atom::setSimulationPosition(chai3d::cVector3d pos) {
+    positionBuffer = std::queue<chai3d::cVector3d>();
+    latestSimulationPosition = pos;
+    hasSimulationPosition = true;
+    prevPos = pos;
+    setLocalPos(pos);
+}
+
 void Atom::addBufferedPos(chai3d::cVector3d pos) {
-    prevPos = getLatestPos();
+    chai3d::cVector3d previousPosition = getLatestPos();
     positionBuffer.push(pos);
+    prevPos = previousPosition;
+    latestSimulationPosition = pos;
+    hasSimulationPosition = true;
 }
 
 chai3d::cVector3d Atom::nextPos() {
@@ -352,8 +365,8 @@ bool Atom::hasNextPos() const {
 }
 
 chai3d::cVector3d Atom::getLatestPos() const {
-    if (positionBuffer.empty()) {
-        return getLocalPos();
+    if (!positionBuffer.empty()) {
+        return positionBuffer.back();
     }
-    return positionBuffer.back();
+    return hasSimulationPosition ? latestSimulationPosition : getLocalPos();
 }

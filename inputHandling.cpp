@@ -410,7 +410,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action, 
   } else if (a_key == GLFW_KEY_T) {
     std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     for (int i = 0; i < atoms.size(); i++) {
-      atoms[i]->setLocalPos(initialPositions[i]);
+      atoms[i]->setSimulationPosition(initialPositions[i]);
       atoms[i]->setVelocity(0);
     }
   } else if (a_key == GLFW_KEY_F1) {
@@ -479,7 +479,7 @@ void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
     cVector3d posObject = pos - selectedAtomOffset;
 
     // apply new position to object
-    selectedAtom->setLocalPos(posObject);
+    selectedAtom->setSimulationPosition(posObject);
   }
 }
 

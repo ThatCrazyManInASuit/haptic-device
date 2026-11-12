@@ -17,6 +17,8 @@ class Atom : public cShapeSphere {
         cVector3d force;
         cVector3d prevForce;
         cVector3d prevPos;
+        cVector3d latestSimulationPosition;
+        bool hasSimulationPosition;
         std::vector<std::vector<std::vector<chai3d::cShapeSphere*>>> periodics;
         std::queue<chai3d::cVector3d> positionBuffer; // a position buffer so physics calculator calculate ahead
         cShapeLine *velVector; // a rendered line that represents the atom's velocity
@@ -163,6 +165,12 @@ class Atom : public cShapeSphere {
         double getMass() const;
 
         /**
+         * @brief Sets the atom's simulation position and rendered position.
+         * @param pos the unwrapped position in world units
+         */
+        void setSimulationPosition(chai3d::cVector3d pos);
+
+        /**
          * @brief Sets the buffer position of the atom
          * @param pos the position to set the buffered pos to
          */
@@ -181,8 +189,8 @@ class Atom : public cShapeSphere {
         bool hasNextPos() const;
 
         /**
-         * @brief Gets the latest position added to the buffer
-         * @return the latest position added to the buffer
+         * @brief Gets the latest unwrapped simulation position
+         * @return the latest simulation position, independent of graphics consumption
          */
         chai3d::cVector3d getLatestPos() const;
 

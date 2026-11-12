@@ -714,7 +714,7 @@ void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell,
       centerCoords[0] = centerPos.x();
       centerCoords[1] = centerPos.y();
       centerCoords[2] = centerPos.z();
-      newAtom->setLocalPos(0.0, 0.0, 0.0); // set first atom at center of view
+      newAtom->setSimulationPosition(chai3d::cVector3d(0.0, 0.0, 0.0)); // set first atom at center of view
     } else {
         chai3d::cVector3d atomPos(positions[i][0], positions[i][1], positions[i][2]);
         // scale coordinates and insert
@@ -722,7 +722,7 @@ void placeAtomsAse(chai3d::cWorld* world, std::array<double, 9>& aseCell,
           chai3d::cVector3d STANDBY_OFFSET(chai3d::cVector3d(0.1, 0.1, 0.1));
           atomPos += STANDBY_OFFSET;
         }
-        newAtom->setLocalPos(DIST_SCALE * (atomPos - centerPos));
+        newAtom->setSimulationPosition(DIST_SCALE * (atomPos - centerPos));
     }
   }
 }
@@ -765,7 +765,7 @@ void placeAtoms(chai3d::cWorld* world, std::array<double, 9>& aseCell, std::arra
       if (i == 0) {
         new_atom->setCurrent(true); // set the first atom to the current
       } else {
-        new_atom->setLocalPos(positions[i - 1]);
+        new_atom->setSimulationPosition(positions[i - 1]);
       }
     }
   } else // read in specified file
@@ -1171,13 +1171,17 @@ void initializeHapticThread() {
 }
 
 /**
- * @brief Changes an atom's position to stay within a boundary
+ * @brief Wraps an unwrapped simulation position for rendering.
  * @param position the position of the atom
  * @param aseCell the 3x3 ASE cell matrix, flattened into a 9-element array
  * @param asePbc the periodic boundary condition to use
  */
-chai3d::cVector3d applyBoundaryConditions(chai3d::cVector3d pos, std::array<double, 9>& aseCell,
+chai3d::cVector3d wrapPositionForDisplay(chai3d::cVector3d pos, std::array<double, 9>& aseCell,
     std::array<int, 3>& asePbc) {
+  if (!asePbc[0] && !asePbc[1] && !asePbc[2]) {
+    return pos;
+  }
+
   chai3d::cVector3d initialCoords(centerCoords[0], centerCoords[1], centerCoords[2]);
   pos = pos / DIST_SCALE + initialCoords;
   
@@ -1218,14 +1222,13 @@ chai3d::cVector3d forceModeUpdateSelectedGroup(const std::vector<Atom*> &selecte
   for (Atom *atom : selected) {
     if (!atom->isAnchor()) {
       chai3d::cVector3d currentPosition = atom->getLatestPos();
-      chai3d::cVector3d previousPosition = atom->getPrevPos();
       chai3d::cVector3d targetPosition = position + selectedOffsets[atom];
       chai3d::cVector3d hapticForce = (targetPosition - currentPosition) * K_HAPTIC_SPRING -
                               atom->getVelocity() * K_HAPTIC_DAMPER;
       const double MAX_HAPTIC_ATOM_FORCE = 100.0; 
       atom->setForce(atom->getForce() + clampVectorMagnitude(hapticForce, MAX_HAPTIC_ATOM_FORCE));
       chai3d::cVector3d newPosition = getNewAtomPosition(atom, timeInterval);
-      atom->addBufferedPos(applyBoundaryConditions(newPosition, aseCell, asePbc));
+      atom->addBufferedPos(newPosition);
     }
     
   }
@@ -1257,7 +1260,7 @@ chai3d::cVector3d positionModeUpdateSelectedGroup(const std::vector<Atom*> &sele
     atom->setVelocity(atom->getVelocity() + targetPosition - oldPosition - posModeAttractions[atom]);
     posModeAttractions[atom] = targetPosition - oldPosition;
     chai3d::cVector3d newPosition(getNewAtomPosition(atom, timeInterval));
-    atom->addBufferedPos(applyBoundaryConditions(newPosition, aseCell, asePbc));
+    atom->addBufferedPos(newPosition);
   }
   // Skylar note: this mode can sometimes have the classic feedback issue. The simulation can
   // drastically move the haptic device so much that the haptic device
@@ -1338,7 +1341,7 @@ chai3d::cVector3d stepSim(const chai3d::cVector3d &requestedPosition, const doub
     for (Atom *atom : atoms) {
       if (!atom->isAnchor() && !atom->isSelected()) {
         chai3d::cVector3d new_position = getNewAtomPosition(atom, timeInterval);
-        atom->addBufferedPos(applyBoundaryConditions(new_position, aseCell, asePbc));
+        atom->addBufferedPos(new_position);
         // Same world-unit-to-physical conversion as langevinThermostatForce.
         chai3d::cVector3d v = atom->getVelocity() / DIST_SCALE;
         kineticEnergy += 0.5 * atom->getMass() * v.dot(v);
@@ -1414,9 +1417,12 @@ void updateBonds(chai3d::cWorld* world) {
         // Atom pairs closer than this threshold are considered bonded for rendering.
         if (distance < (1.2 * (atoms[i]->getRadius() + atoms[j]->getRadius()))) {
           bondedPairs.insert(std::make_pair(i, j));
-          atoms[i]->bondedAtoms.insert(atoms[j]);
+          atoms[i]->bondedAtoms.push_back(atoms[j]);
         } else {
-          atoms[i]->bondedAtoms.erase(atoms[j]);
+          atoms[i]->bondedAtoms.erase(
+              std::remove(atoms[i]->bondedAtoms.begin(), atoms[i]->bondedAtoms.end(),
+                          atoms[j]),
+              atoms[i]->bondedAtoms.end());
         }
       }
     }
@@ -1669,22 +1675,23 @@ void updateGraphics(chai3d::cWorld* world) {
     if (repeatChanged) {
       atom->setPeriodics(repeatX, repeatY, repeatZ);
     }
-    if (atom->hasNextPos()) {
-      auto periodics = atom->getPeriodics();
-      chai3d::cVector3d atomPos = atom->nextPos();
-      atom->setLocalPos(atomPos);
-      int xLength = periodics.size();
-      int yLength = periodics[0].size();
-      int zLength = periodics[0][0].size();
-      int startX = xLength / -2;
-      int startY = yLength / -2;
-      int startZ = zLength / -2;
-      for (int i = startX; i < xLength + startX; i++) {
-        for (int j = startY; j < yLength + startY; j++) {
-          for (int k = startZ; k < zLength + startZ; k++) {
-            chai3d::cVector3d periodicPos = atomPos + i * a + j * b + k * c;
-            periodics[i - startX][j - startY][k - startZ]->setLocalPos(periodicPos);
-          }
+    chai3d::cVector3d simulationPosition = atom->hasNextPos()
+        ? atom->nextPos()
+        : atom->getLatestPos();
+    chai3d::cVector3d atomPos = wrapPositionForDisplay(simulationPosition, aseCell, asePbc);
+    atom->setLocalPos(atomPos);
+    auto periodics = atom->getPeriodics();
+    int xLength = periodics.size();
+    int yLength = periodics[0].size();
+    int zLength = periodics[0][0].size();
+    int startX = xLength / -2;
+    int startY = yLength / -2;
+    int startZ = zLength / -2;
+    for (int i = startX; i < xLength + startX; i++) {
+      for (int j = startY; j < yLength + startY; j++) {
+        for (int k = startZ; k < zLength + startZ; k++) {
+          chai3d::cVector3d periodicPos = atomPos + i * a + j * b + k * c;
+          periodics[i - startX][j - startY][k - startZ]->setLocalPos(periodicPos);
         }
       }
     }
