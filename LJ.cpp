@@ -2,6 +2,7 @@
 #include "chai3d.h"
 #include "globals.h"
 #include "inputHandling.h"
+#include "metaPolyhedra.h"
 #include "ipcServer.h"
 #include "potentials.h"
 #include "utility.h"
@@ -1397,7 +1398,21 @@ const size_t MIN_COORDINATION = 4;
 // TODO: Look into what this means
 const double PLANE_TOLERANCE = 1e-3 * DIST_SCALE;
 
-const float POLYHEDRON_OPACITY = 0.55f;
+// Opacity of rendered polyhedrons
+const float POLYHEDRON_OPACITY = 1.0f;
+
+// Spacing of the grid the merged polyhedron surface is sampled on (0.4 Å by default)
+const double POLYHEDRON_GRID_STEP = 0.4 * DIST_SCALE;
+
+// How often the merged surface is rebuilt.
+const std::chrono::milliseconds POLYHEDRON_REBUILD_INTERVAL(250);
+
+// A hull needs at least this many bounding planes to enclose a volume. (4)
+const size_t MIN_HULL_PLANES = 4;
+
+// How wide the blend joining neighbouring coordination polyhedra is, in Angstroms.
+// Set from the launcher or the IPC "set merge_radius" command.
+std::atomic<double> polyhedronMergeRadius(0.0);
 
 /**
  * @brief Creates the mesh holding every coordination polyhedron and attaches it to the scene
@@ -1512,14 +1527,30 @@ void addPolyhedronFace(const std::vector<int> &face, const chai3d::cVector3d &no
 }
 
 /**
- * @brief Adds the convex hull of a site's neighbour shell to the polyhedron mesh
+ * @brief Works out the convex hull of a site's neighbour shell, drawing it as flat faces and
+ *        recording the half-spaces that bound it
  * @param center the central site
+ * @param drawFaces whether to add the hull's faces to the polyhedron mesh. False while the hulls
+ *                  are being merged into one surface instead, which replaces the flat faces
+ * @param fields collects the bounding half-spaces of each hull that encloses a volume
  */
-void addPolyhedron(Atom *center) {
+void addPolyhedron(Atom *center, bool drawFaces, std::vector<PolyhedronField> &fields) {
   const std::vector<int> shell(center->getBondedAtoms().begin(), center->getBondedAtoms().end());
   const chai3d::cVector3d centerPos = center->getLocalPos();
   chai3d::cColorf color = center->getColor();
   color.setA(POLYHEDRON_OPACITY);
+
+  PolyhedronField field;
+  field.color = color;
+  field.boundsMin = atoms[shell[0]]->getLocalPos();
+  field.boundsMax = field.boundsMin;
+  for (int index : shell) {
+    const chai3d::cVector3d &at = atoms[index]->getLocalPos();
+    for (int axis = 0; axis < 3; axis++) {
+      field.boundsMin(axis) = std::min(field.boundsMin(axis), at(axis));
+      field.boundsMax(axis) = std::max(field.boundsMax(axis), at(axis));
+    }
+  }
 
   // Any plane through three neighbours that leaves all the others on one side is a hull face.
   // Since coplanar triples describe the same face, each face is only emitted the first time it is
@@ -1537,11 +1568,25 @@ void addPolyhedron(Atom *center) {
         if (normal.lengthsq() != 0) { // Only add face if the three neighbours aren't collinear
           std::vector<int> face = hullFace(normal, point, shell);
           if (face.size() >= 3 && emitted.insert(face).second) {
-            addPolyhedronFace(face, normal, centerPos, color);
+            if (drawFaces) {
+              addPolyhedronFace(face, normal, centerPos, color);
+            }
+            // Record the face as the half-space it bounds, pointing away from the central site so
+            // that "inside the hull" is the negative side.
+            chai3d::cVector3d outward = normal;
+            if (chai3d::cDot(outward, point - centerPos) < 0) {
+              outward.negate();
+            }
+            field.planeNormals.push_back(outward);
+            field.planeOffsets.push_back(chai3d::cDot(outward, point));
           }
         }
       }
     }
+  }
+
+  if (field.planeOffsets.size() >= MIN_HULL_PLANES) {
+    fields.push_back(field);
   }
 }
 
@@ -1552,8 +1597,8 @@ void addPolyhedron(Atom *center) {
  *         around the atoms that have one.
  */
 void updateBonds(chai3d::cWorld* world) {
-  polyhedra->clear();
   if (!renderBonds.load()) {
+    polyhedra->clear();
     for (auto &entry : bondLines) {
       entry.second->setShowEnabled(false);
     }
@@ -1575,10 +1620,32 @@ void updateBonds(chai3d::cWorld* world) {
       }
     }
 
-    for (Atom *atom : atoms) {
-      if (isPolyhedralCenter(atom)) {
-        addPolyhedron(atom);
+    const double mergeRadius = polyhedronMergeRadius.load() * DIST_SCALE;
+    static std::chrono::steady_clock::time_point lastRebuild;
+    static double lastMergeRadius = -1.0;
+    std::vector<PolyhedronField> hulls;
+    if (mergeRadius > 0.0) {
+      std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+      if (mergeRadius != lastMergeRadius || now - lastRebuild >= POLYHEDRON_REBUILD_INTERVAL) {
+        for (Atom *atom : atoms) {
+          if (isPolyhedralCenter(atom)) {
+            addPolyhedron(atom, false, hulls);
+          }
+        }
+        buildMergedPolyhedra(hulls, mergeRadius, POLYHEDRON_GRID_STEP, polyhedra);
+        lastRebuild = now;
+        lastMergeRadius = mergeRadius;
       }
+    } else {
+      polyhedra->clear();
+      for (Atom *atom : atoms) {
+        if (isPolyhedralCenter(atom)) {
+          addPolyhedron(atom, true, hulls);
+        }
+      }
+      // so that turning merging back on rebuilds at once rather than waiting out
+      // the refresh interval with no surface on screen
+      lastMergeRadius = -1.0;
     }
 
     for (const std::pair<int, int> &bondedPair : bondedPairs) {
@@ -2191,6 +2258,14 @@ bool setLiveReturnDelay(double value) {
     return false;
   }
   returnDelaySeconds.store(value);
+  return true;
+}
+
+bool setLiveMergeRadius(double value) {
+  if (!std::isfinite(value) || value < MIN_MERGE_RADIUS || value > MAX_MERGE_RADIUS) {
+    return false;
+  }
+  polyhedronMergeRadius.store(value);
   return true;
 }
 

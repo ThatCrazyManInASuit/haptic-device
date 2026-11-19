@@ -110,6 +110,10 @@ MAX_FORCE_SCALE = 1.0
 MIN_MAX_FORCE_OUTPUT = 0.0
 MAX_MAX_FORCE_OUTPUT = 10.0
 
+# must match MIN_/MAX_MERGE_RADIUS in globals.h
+MIN_MERGE_RADIUS = 0.0
+MAX_MERGE_RADIUS = 15.0
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -418,6 +422,25 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.render_bonds_checkbox)
 
+        layout.addWidget(QLabel("Polyhedron merge:"))
+        self.merge_radius_spin = QDoubleSpinBox()
+        self.merge_radius_spin.setDecimals(2)
+        self.merge_radius_spin.setRange(MIN_MERGE_RADIUS, MAX_MERGE_RADIUS)
+        self.merge_radius_spin.setSingleStep(0.1)
+        self.merge_radius_spin.setValue(0.0)
+        self.merge_radius_spin.setSuffix(" \u00c5")
+        self.merge_radius_spin.setToolTip(
+            "How widely neighbouring coordination polyhedra blend into one another.\n"
+            "0 draws each polyhedron separately. Widening it fuses polyhedra that\n"
+            "share a vertex, and far enough closes the joins over the space between\n"
+            "them so a channel or cage becomes an enclosed volume.\n"
+            "Needs bond rendering on."
+        )
+        self.merge_radius_spin.valueChanged.connect(
+            lambda value: self.ipc.send(f"set merge_radius {value:.2f}")
+        )
+        layout.addWidget(self.merge_radius_spin)
+
         return group
 
     def _build_haptic_tuning_group(self) -> QGroupBox:
@@ -652,6 +675,7 @@ class MainWindow(QMainWindow):
         # don't fight the user while they're actively editing one of these
         for spin, key in (
             (self.force_scale_spin, "force_scale"),
+            (self.merge_radius_spin, "merge_radius"),
             (self.k_return_spin, "k_return"),
             (self.k_dampen_spin, "k_dampen"),
             (self.return_delay_spin, "return_delay"),

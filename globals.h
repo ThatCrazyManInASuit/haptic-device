@@ -58,6 +58,19 @@ extern std::atomic<bool> renderAtomSize;
 extern std::atomic<bool> renderForceVectors;
 extern std::atomic<bool> renderBonds;
 
+// How wide the blend joining neighbouring coordination polyhedra is, in Angstroms.
+// Zero draws each polyhedron as its own solid; widening it fuses polyhedra that
+// share a vertex and eventually closes the joins over the space between them, so
+// a channel or cage reads as one enclosed volume. Changeable at runtime via the
+// IPC "set merge_radius" command / launcher UI.
+extern std::atomic<double> polyhedronMergeRadius;
+
+constexpr double MIN_MERGE_RADIUS = 0.0;
+constexpr double MAX_MERGE_RADIUS = 15.0;
+
+// validated setter for polyhedronMergeRadius, same fail-closed contract as setLiveTimeStep
+bool setLiveMergeRadius(double value);
+
 extern chai3d::cLabel *camera_pos;
 
 extern chai3d::cLabel *helpHeader;

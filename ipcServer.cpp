@@ -92,6 +92,7 @@ string buildStatus() {
       << " render_atoms=" << (renderAtoms.load() ? "true" : "false")
       << " render_forces=" << (renderForceVectors.load() ? "true" : "false")
       << " render_bonds=" << (renderBonds.load() ? "true" : "false")
+      << " merge_radius=" << polyhedronMergeRadius.load()
       << " k_return=" << kReturn.load()
       << " k_dampen=" << kDampen.load()
       << " return_delay=" << returnDelaySeconds.load()
@@ -211,6 +212,18 @@ string handleCommand(const string &line) {
         }
       } catch (const exception &) {
         return "ERR return_delay must be a valid number";
+      }
+      return "OK";
+    } else if (key == "merge_radius") {
+      try {
+        size_t consumed = 0;
+        double parsed = stod(value, &consumed);
+        if (consumed != value.size() || !setLiveMergeRadius(parsed)) {
+          return "ERR merge_radius must be a number between " +
+                 to_string(MIN_MERGE_RADIUS) + " and " + to_string(MAX_MERGE_RADIUS);
+        }
+      } catch (const exception &) {
+        return "ERR merge_radius must be a valid number";
       }
       return "OK";
     } else if (key == "force_scale") {

@@ -30,6 +30,7 @@ find_package(GLFW CONFIG REQUIRED PATHS "${CHAI3D_GLFW_BUILD_DIR}" NO_DEFAULT_PA
 set(HAPTIC_DEVICE_SOURCES
   LJ.cpp
   atom.cpp
+  metaPolyhedra.cpp
   inputHandling.cpp
   ipcServer.cpp
   potentials.cpp
