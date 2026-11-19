@@ -397,6 +397,13 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.render_atoms_checkbox)
 
+        self.render_atom_size = QCheckBox("Atom Size")
+        self.render_atom_size.setChecked(True)
+        self.render_atom_size.toggled.connect(
+            lambda checked: self.ipc.send(f"set render_atom_size {'true' if checked else 'false'}")
+        )
+        layout.addWidget(self.render_atom_size)
+
         self.render_forces_checkbox = QCheckBox("Force vectors")
         self.render_forces_checkbox.setChecked(True)
         self.render_forces_checkbox.toggled.connect(

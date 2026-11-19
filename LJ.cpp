@@ -172,8 +172,9 @@ chai3d::cScope *scope; // a scope to monitor the potential energy
 double global_minimum; // global minimum for the given cluster size
 
 std::atomic<bool> freezeAtoms(false); // determine if atoms should be frozen
-
-std::atomic<bool> renderAtoms(true); // determine if atom atoms should be drawn
+std::atomic<bool> renderAtoms(true); // determine if atoms should be drawn
+// determine if atoms should be drawn should be drawn according to their covalent radius
+std::atomic<bool> renderAtomSize(true); 
 std::atomic<bool> renderForceVectors(true); // determine if force vector lines should be drawn
 std::atomic<bool> renderBonds(true); // determine if bond lines should be drawn
 double centerCoords[3] = {50.0, 50.0, 50.0}; // save coordinates of central atom
@@ -1791,6 +1792,14 @@ void updateLabels() {
   }
 }
 
+void scaleToHydrogen(chai3d::cMesh *atom, bool scaleUp, double radius) {
+  if (scaleUp) {
+    atom->scale(radius / H_RADIUS);
+  } else {
+    atom->scale(H_RADIUS / radius);
+  }
+}
+
 /**
  * @brief Updates all scene objects that depend on the current simulation state.
  */
@@ -1803,6 +1812,9 @@ void updateGraphics(chai3d::cWorld* world) {
   // apply debug rendering toggles for atoms and force vectors, and recompute
   // bond lines for the current atom positions
   bool showAtoms = renderAtoms.load();
+
+  static bool showAtomSize = renderAtomSize.load();
+
   bool showForceVectors = renderForceVectors.load();
   bool showPeriodics = showAtoms &&
       (repeatX.load() > 1 || repeatY.load() > 1 || repeatZ.load() > 1);
@@ -1818,6 +1830,14 @@ void updateGraphics(chai3d::cWorld* world) {
   c *= DIST_SCALE;
   for (Atom *atom : atoms) {
     atom->setShowEnabled(showAtoms);
+    if (showAtomSize != renderAtomSize.load()) {
+      scaleToHydrogen(atom, renderAtomSize.load(), atom->getRadius());
+      for (const auto &plane : atom->getPeriodics())
+        for (const auto &row : plane)
+          for (chai3d::cMesh *periodic : row)
+            periodic->markForUpdate(false, false);
+    }
+
     for (const auto &plane : atom->getPeriodics()) {
       for (const auto &row : plane) {
         for (chai3d::cMesh *periodic : row) {
@@ -1852,6 +1872,7 @@ void updateGraphics(chai3d::cWorld* world) {
       }
     }
   }
+  showAtomSize = renderAtomSize.load();
   if (repeatChanged) {
     repeatChanged = false;
   }

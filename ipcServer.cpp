@@ -159,6 +159,12 @@ string handleCommand(const string &line) {
       }
       renderAtoms.store(value == "true");
       return "OK";
+    } else if (key == "render_atom_size") {
+      if (value != "true" && value != "false") {
+        return "ERR render_atoms must be true or false";
+      }
+      renderAtomSize.store(value == "true");
+      return "OK";
     } else if (key == "render_forces") {
       if (value != "true" && value != "false") {
         return "ERR render_forces must be true or false";

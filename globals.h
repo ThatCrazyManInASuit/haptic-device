@@ -54,6 +54,7 @@ extern std::atomic<bool> freezeAtoms;
 // are drawn each frame. Changeable at runtime via hotkeys 1/2/3 or the IPC
 // "set render_atoms/render_forces/render_bonds" commands.
 extern std::atomic<bool> renderAtoms;
+extern std::atomic<bool> renderAtomSize;
 extern std::atomic<bool> renderForceVectors;
 extern std::atomic<bool> renderBonds;
 
